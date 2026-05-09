@@ -1,6 +1,8 @@
 # skills/ — operational skills for imessage-bridge
 
-These are agent-readable + human-readable runbooks for the most common things you'll do with this project. Drop them into any tool that consumes [`SKILL.md`](https://github.com/copilot-extensions) format — Copilot CLI, Cursor rules, Claude projects, internal LLMs — and they'll route the right answer to the right question.
+These are agent-readable + human-readable runbooks for the most common things you'll do with this project. Drop them into any tool that consumes [`SKILL.md`](https://github.com/copilot-extensions) format — Copilot CLI, Cursor rules, Claude projects, internal LLMs, or an [openclaw](https://github.com/openclaw/openclaw) 🦞 runtime — and they'll route the right answer to the right question.
+
+> **Inspiration:** This folder follows the [openclaw](https://github.com/openclaw/openclaw) skill convention (top-level `skills/`, one directory per skill, `SKILL.md` with frontmatter). If you're already running openclaw, you can symlink this directory straight in: `ln -s /path/to/imessage-bridge/skills ~/.openclaw/skills/imessage-bridge`.
 
 > **Note:** This is the **operational** skills folder. Squad-internal / agent-meta skills (e.g. error-recovery, git-workflow, secret-handling) live under [`.copilot/skills/`](../.copilot/skills/).
 

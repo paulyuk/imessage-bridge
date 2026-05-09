@@ -4,12 +4,16 @@
 
 **Send iMessages from anywhere. Without a Mac on the public internet.**
 
-A small, opinionated bridge that lets an inexpensive Linux/cloud "producer" enqueue messages securely and async over **AMQP 1.0** into a managed broker, and a tiny agent on your Mac pulls them out and sends them through `Messages.app`. No inbound ports to attack. No SAS keys. No PATs.
+A small, opinionated bridge that lets an inexpensive Linux/cloud "producer" (or your favorite [openclaw](https://github.com/openclaw/openclaw) 🦞) enqueue messages securely and async over **AMQP 1.0** into a managed broker, and a tiny agent on your Mac pulls them out and sends them through `Messages.app`. No inbound ports to attack. No SAS keys. No PATs.
 
+[![openclaw skill](https://img.shields.io/badge/🦞-openclaw--style_claw-c1473a)](https://github.com/openclaw/openclaw)
 [![AMQP 1.0](https://img.shields.io/badge/wire-AMQP%201.0-0b6e3b)](https://www.amqp.org/)
 [![Dapr-friendly](https://img.shields.io/badge/swap--in-Dapr%20pubsub-008ce5)](https://docs.dapr.io/reference/components-reference/supported-pubsub/)
-[![OAuth only](https://img.shields.io/badge/auth-OAuth%20%2F%20Azure%20AD-ff6f00)](./SECURITY.md)
+[![OAuth only](https://img.shields.io/badge/auth-OAuth%20%2F%20Entra-ff6f00)](./SECURITY.md)
 [![Built with uv](https://img.shields.io/badge/python-uv-de5fe9)](https://github.com/astral-sh/uv)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+[![~250 LOC](https://img.shields.io/badge/code-~250%20LOC-lightgrey)](./producer/cli.py)
+[![macOS LaunchAgent](https://img.shields.io/badge/runs%20on-macOS%20LaunchAgent-000000)](./mac/launchd/install.sh)
 
 [Quick start](#-quick-start) · [Architecture](#-architecture) · [Standards & portability](#-standards--portability) · [Install](./INSTALL.md) · [Troubleshooting](./TROUBLESHOOTING.md) · [Security](#-security) · [Contributing](#-contributing)
 
@@ -26,6 +30,7 @@ iMessage is a walled garden. If you want to send an iMessage programmatically, y
 - **Producer-anywhere, consumer-on-Mac** — the producer is just a cmdline tool call for humans or agents to send a message securely like you would want to in a claw; the Mac only makes _outbound_ calls to the broker and then forwards to iMessage via `Messages.app`. Nothing inbound. No port forwarding. No tunnels.
 - **OAuth + Microsoft Entra identities** — no SAS connection strings, no PATs, no `.env` files full of secrets, or other things to get complicated and get Pwnd. Both ends authenticate via `DefaultAzureCredential`. Don't let Entra scare you — it works with Free Azure accounts and consumer outlook.com accounts. Or just take this pattern and use the ecosystem you prefer for identity and cloud hosting. No biggie.
 - **Standards under the hood** — the wire protocol is **AMQP 1.0** (OASIS / [ISO/IEC 19464](https://www.iso.org/standard/64955.html)), not a vendor-proprietary format. Your queue is just a queue. See [Standards & portability](#-standards--portability) below.
+- **Built in the [openclaw](https://github.com/openclaw/openclaw) 🦞 spirit** — own your data, own your infra, ship one more "claw" into a walled-garden ecosystem so your agents can act on your behalf. Each [`skills/`](./skills/) entry follows the openclaw skill format so this folder drops cleanly into any openclaw-style runtime (or any other agent framework that consumes `SKILL.md`).
 - **Tiny surface area** — ~100 lines of producer + ~150 lines of agent. Easy to read, easy to fork, easy to trust.
 
 ## 🏗 Architecture
@@ -102,9 +107,10 @@ This project is built on **standards**, not vendor primitives. The default deplo
 | Layer | Standard / Spec | Why it matters |
 |---|---|---|
 | **Wire protocol** | [AMQP 1.0](https://www.amqp.org/) (OASIS, [ISO/IEC 19464](https://www.iso.org/standard/64955.html)) | Same protocol RabbitMQ, ActiveMQ Artemis, Solace, IBM MQ, AWS MQ, and Azure Service Bus all speak. Your queue is just a queue. |
-| **Auth** | [OAuth 2.0](https://oauth.net/2/) + [OpenID Connect](https://openid.net/connect/) (Azure AD as the IdP) | No SAS keys, no PATs, no client secrets. Token-based, instantly revocable. |
+| **Auth** | [OAuth 2.0](https://oauth.net/2/) + [OpenID Connect](https://openid.net/connect/) (Microsoft Entra as the IdP) | No SAS keys, no PATs, no client secrets. Token-based, instantly revocable. |
 | **Phone format** | [E.164](https://en.wikipedia.org/wiki/E.164) | The same format Twilio, Telegram, WhatsApp, and SMS gateways all expect. |
 | **Message shape** | JSON, AMQP `message_id` for idempotency | Trivial to interop with anything. |
+| **Skill format** | [`SKILL.md`](./skills/README.md) frontmatter + sections, as used by [openclaw](https://github.com/openclaw/openclaw) 🦞 | The whole [`skills/`](./skills/) folder drops cleanly into any openclaw runtime — install-mac, install-producer, send-message, doctor, logs are all reusable claws. |
 
 ### Swap the broker
 
