@@ -139,14 +139,43 @@ running but every send fails with *"Not authorized to send Apple events to
 Messages."*
 
 ```bash
-uv run mac/agent.py
+npx imessage-bridge@alpha agent
 # click Allow on the Automation prompt, then ctrl-C
 ./mac/launchd/install.sh
 ```
 
 You can audit the permission in:
 
-> System Settings → Privacy & Security → Automation → (Terminal / uv / launchd) → ✅ Messages
+> System Settings → Privacy & Security → Automation → (Terminal / node / launchd) → ✅ Messages
+
+### Automation permission is **per-binary**
+
+This is the gotcha that bites everyone exactly once. macOS scopes the
+Automation grant to the **specific binary** that called `osascript`. If you
+swap the agent runtime — e.g. you used to run the Python agent under `uv`
+and now you're running the Node agent under `node` — **the new binary needs
+its own grant**.
+
+Symptom: the daemon says `connected to service bus, listening...` and then
+goes silent. The first message it tries to deliver triggers a fresh macOS
+Automation prompt and the daemon hangs in `osascript` until you click Allow.
+On a launchd-spawned process there's no prompt, so it just hangs forever
+(then eventually times out and abandons the message).
+
+Fix when you swap binaries:
+```bash
+# stop the daemon
+./mac/launchd/uninstall.sh
+# run once interactively so macOS prompts the new binary
+npx imessage-bridge@alpha agent
+# click Allow on the new Automation prompt, then ctrl-C
+# reinstall — daemon now uses the freshly-permitted binary
+./mac/launchd/install.sh
+```
+
+You'll see entries for both binaries in **System Settings → Privacy &
+Security → Automation** (e.g. one for `node`, one for `uv`). Each one needs
+its own ✅ Messages checkbox.
 
 ### Plist won't load — "Service is disabled"
 
@@ -166,12 +195,14 @@ Common causes:
   above, click **Allow**, then reinstall.
 - **`DefaultAzureCredential failed to retrieve a token`** — run `az login` from
   the same macOS user that owns the LaunchAgent.
+- **Daemon connects then goes silent** — see [Automation permission is per-binary](#automation-permission-is-per-binary) above. The most common cause when you've swapped from the Python agent to the Node agent.
 
-### `uv: command not found` in launchd logs
+### `node: command not found` (or `uv: command not found`) in launchd logs
 
-The installer pins the absolute path to `uv` (`command -v uv` at install time)
-into the plist, so this should not happen. If it does, you probably moved or
-reinstalled `uv`. Just re-run `./mac/launchd/install.sh`.
+The installer pins the absolute path to `node` (`command -v node` at install
+time) into the plist, so this should not happen. If it does, you probably
+moved or reinstalled Node (or switched nvm versions). Just re-run
+`./mac/launchd/install.sh` to re-pin the current path.
 
 ## uv / Python
 

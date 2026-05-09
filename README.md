@@ -289,7 +289,7 @@ For full broker portability *without* swapping client libraries, run the produce
 
 End users don't need any of this — `npx imessage-bridge@alpha` is the supported install path.
 
-If you're hacking on the repo itself (the original agent + tests are still Python; the `mac/launchd/` installer also shells out to `uv`), this project standardizes on **[uv](https://github.com/astral-sh/uv)**. Faster, lockfile-driven, reproducible. We do not invoke `python3` or `pip` directly. Because we're rad.
+If you're hacking on the repo itself (the original Python agent + producer + tests are preserved as a contributor reference), this project standardizes on **[uv](https://github.com/astral-sh/uv)** for the Python parts. Faster, lockfile-driven, reproducible. We do not invoke `python3` or `pip` directly. Because we're rad.
 
 | Task               | ❌ Don't                       | ✅ Do                            |
 |--------------------|--------------------------------|----------------------------------|

@@ -8,13 +8,13 @@
 #   mac/launchd/install.sh           # install + start
 #
 # What it does:
-#   1. Detects absolute paths for uv, $HOME, and the repo root.
+#   1. Detects absolute paths for node, $HOME, and the repo root.
 #   2. Substitutes them into mac/launchd/com.imessage-bridge.agent.plist.
 #   3. Copies the result to ~/Library/LaunchAgents/.
 #   4. Registers it with `launchctl bootstrap gui/$UID` (modern API).
 #   5. Kickstarts it so you don't have to wait for the next login.
 #
-# Requires: macOS, uv installed (curl -LsSf https://astral.sh/uv/install.sh | sh).
+# Requires: macOS, Node ≥18 (https://nodejs.org/ or `brew install node`).
 
 set -euo pipefail
 
@@ -31,12 +31,34 @@ if [[ ! -f "${TEMPLATE}" ]]; then
   exit 1
 fi
 
-# --- Required: uv on PATH --------------------------------------------------
-UV_BIN="$(command -v uv || true)"
-if [[ -z "${UV_BIN}" ]]; then
-  echo "❌ uv not found on PATH. Install it first:" >&2
-  echo "   curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+# --- Required: node ≥18 on PATH --------------------------------------------
+NODE_BIN="$(command -v node || true)"
+if [[ -z "${NODE_BIN}" ]]; then
+  echo "❌ node not found on PATH. Install Node ≥18:" >&2
+  echo "   brew install node            # macOS, Homebrew" >&2
+  echo "   or:  https://nodejs.org/" >&2
   exit 1
+fi
+NODE_MAJOR="$("${NODE_BIN}" -e 'process.stdout.write(String(process.versions.node.split(".")[0]))')"
+if [[ "${NODE_MAJOR}" -lt 18 ]]; then
+  echo "❌ node version too old: $("${NODE_BIN}" --version) — require ≥18.0.0" >&2
+  exit 1
+fi
+
+# --- Required: bin/imessage-bridge.mjs (the agent entry point) -------------
+ENTRY="${REPO_ROOT}/bin/imessage-bridge.mjs"
+if [[ ! -f "${ENTRY}" ]]; then
+  echo "❌ ${ENTRY} not found. Run from a clone of the imessage-bridge repo." >&2
+  exit 1
+fi
+
+# --- Required: deps installed (node_modules present) ----------------------
+if [[ ! -d "${REPO_ROOT}/node_modules" ]]; then
+  echo "ℹ️  node_modules missing — running 'npm install --omit=dev' …" >&2
+  ( cd "${REPO_ROOT}" && npm install --omit=dev --silent ) || {
+    echo "❌ npm install failed. Try manually: cd ${REPO_ROOT} && npm install" >&2
+    exit 1
+  }
 fi
 
 # --- Required: config.json exists -----------------------------------------
@@ -57,7 +79,7 @@ TMP="${REPO_ROOT}/.launchd.${LABEL}.$$.plist"
 trap 'rm -f "${TMP}"' EXIT
 
 sed \
-  -e "s|__UV__|${UV_BIN}|g" \
+  -e "s|__NODE__|${NODE_BIN}|g" \
   -e "s|__REPO__|${REPO_ROOT}|g" \
   -e "s|__HOME__|${HOME}|g" \
   "${TEMPLATE}" >"${TMP}"
@@ -84,6 +106,7 @@ launchctl kickstart -k "${SERVICE}"
 
 echo "✅ installed and started: ${LABEL}"
 echo "   plist:    ${DEST}"
+echo "   node:     ${NODE_BIN} ($("${NODE_BIN}" --version))"
 echo "   logs:     ${REPO_ROOT}/logs/agent.log"
 echo "             ${REPO_ROOT}/logs/agent.launchd.log  (early-startup errors)"
 echo

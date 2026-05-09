@@ -141,7 +141,8 @@ launchctl kickstart -k gui/$(id -u)/com.imessage-bridge.agent
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `Not authorized to send Apple events to Messages` in `logs/agent.launchd.log` | Skipped step 4 | Run `npx imessage-bridge@alpha agent` (or `uv run mac/agent.py` from a clone) in a Terminal once, click **Allow**, then re-run `./mac/launchd/install.sh` |
+| `Not authorized to send Apple events to Messages` in `logs/agent.launchd.log` | Skipped step 4 OR you swapped runtimes (e.g. uv → node) and macOS sees a different binary | Stop daemon → run `npx imessage-bridge@alpha agent` in a Terminal once → click **Allow** → re-run `./mac/launchd/install.sh`. See TROUBLESHOOTING.md *"Automation permission is per-binary"*. |
+| Daemon shows `state = running` and `connected to service bus, listening…` but no further log activity | First message after a runtime swap is hanging on the macOS Automation prompt that launchd can't show | Same fix as above — foreground run, click Allow, reinstall |
 | `state = unknown` from `launchctl print` | Plist not bootstrapped | Re-run `./mac/launchd/install.sh` |
 | `Bootstrap failed: 5: Input/output error` | Plist file got removed before bootstrap (e.g. legacy migration script) | Re-run `./mac/launchd/install.sh` |
 | Daemon keeps restarting (with 60s gaps in log) | Throttled crash loop — config missing, expired `az` token, or import error | `tail -50 logs/agent.launchd.log` to see the actual error |
