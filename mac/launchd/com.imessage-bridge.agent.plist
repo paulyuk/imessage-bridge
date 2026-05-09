@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LaunchAgent template for the iMessage bridge Mac agent.
+
+  Do NOT install this file by hand — the placeholders below (__UV__, __REPO__,
+  __HOME__) must be substituted with absolute paths first. Use the installer:
+
+      mac/launchd/install.sh
+
+  The installer detects your uv binary and repo path, fills the template, copies
+  the result to ~/Library/LaunchAgents/com.imessage-bridge.agent.plist, and
+  registers it with `launchctl bootstrap` (the modern API; load/unload are
+  deprecated as of macOS 10.10).
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.imessage-bridge.agent</string>
+
+  <!-- We use uv, never python3 directly. See AGENTS.md. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__UV__</string>
+    <string>run</string>
+    <string>mac/agent.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+
+  <!-- Make sure uv can find its caches and the user's az token cache. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>__HOME__</string>
+    <key>PATH</key>
+    <string>__HOME__/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <!-- Start at login and keep alive forever. -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- If the agent crashes, wait at least 60s before relaunching. Prevents a
+       crash-loop from pegging CPU (e.g. bad config, expired az token). -->
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+
+  <!-- Background priority — don't compete with foreground apps. -->
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <!-- launchd captures stdout/stderr from before Python logging initializes
+       (config errors, import failures, az login prompts). The agent itself
+       writes structured logs to logs/agent.log via Python's logging module. -->
+  <key>StandardOutPath</key>
+  <string>__REPO__/logs/agent.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>__REPO__/logs/agent.launchd.log</string>
+</dict>
+</plist>

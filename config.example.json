@@ -1,0 +1,9 @@
+{
+  "namespace_fqdn": "REPLACE-ME.servicebus.windows.net",
+  "queue": "imsg-queue",
+  "model": "gpt-5.4-mini",
+  "model_version": "latest",
+  "poll_interval_s": 3,
+  "log_path": "./logs/agent.log",
+  "signature": "🐩"
+}

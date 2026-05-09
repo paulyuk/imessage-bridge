@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# Install (or reinstall) the iMessage bridge as a macOS LaunchAgent.
+#
+# Idempotent: safe to run repeatedly. If the agent is already installed it will
+# be unloaded, the plist regenerated from the template, and the agent reloaded.
+#
+# Usage:
+#   mac/launchd/install.sh           # install + start
+#
+# What it does:
+#   1. Detects absolute paths for uv, $HOME, and the repo root.
+#   2. Substitutes them into mac/launchd/com.imessage-bridge.agent.plist.
+#   3. Copies the result to ~/Library/LaunchAgents/.
+#   4. Registers it with `launchctl bootstrap gui/$UID` (modern API).
+#   5. Kickstarts it so you don't have to wait for the next login.
+#
+# Requires: macOS, uv installed (curl -LsSf https://astral.sh/uv/install.sh | sh).
+
+set -euo pipefail
+
+LABEL="com.imessage-bridge.agent"
+PLIST_FILE="${LABEL}.plist"
+
+# --- Locate the repo (the directory above mac/launchd/) ---------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+TEMPLATE="${SCRIPT_DIR}/${PLIST_FILE}"
+
+if [[ ! -f "${TEMPLATE}" ]]; then
+  echo "❌ template not found: ${TEMPLATE}" >&2
+  exit 1
+fi
+
+# --- Required: uv on PATH --------------------------------------------------
+UV_BIN="$(command -v uv || true)"
+if [[ -z "${UV_BIN}" ]]; then
+  echo "❌ uv not found on PATH. Install it first:" >&2
+  echo "   curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+  exit 1
+fi
+
+# --- Required: config.json exists -----------------------------------------
+if [[ ! -f "${REPO_ROOT}/config.json" ]]; then
+  echo "❌ ${REPO_ROOT}/config.json not found." >&2
+  echo "   Run: cp config.example.json config.json && \$EDITOR config.json" >&2
+  exit 1
+fi
+
+# --- Render the plist ------------------------------------------------------
+mkdir -p "${REPO_ROOT}/logs"
+DEST_DIR="${HOME}/Library/LaunchAgents"
+DEST="${DEST_DIR}/${PLIST_FILE}"
+mkdir -p "${DEST_DIR}"
+
+# Use a repo-local scratch file so a partial write can't leave a broken plist behind.
+TMP="${REPO_ROOT}/.launchd.${LABEL}.$$.plist"
+trap 'rm -f "${TMP}"' EXIT
+
+sed \
+  -e "s|__UV__|${UV_BIN}|g" \
+  -e "s|__REPO__|${REPO_ROOT}|g" \
+  -e "s|__HOME__|${HOME}|g" \
+  "${TEMPLATE}" >"${TMP}"
+
+# Validate the rendered plist before installing it.
+if ! /usr/bin/plutil -lint "${TMP}" >/dev/null; then
+  echo "❌ rendered plist failed plutil -lint:" >&2
+  /usr/bin/plutil -lint "${TMP}" >&2
+  exit 1
+fi
+
+mv "${TMP}" "${DEST}"
+trap - EXIT
+
+# --- (Re)register with launchd --------------------------------------------
+DOMAIN="gui/$(id -u)"
+SERVICE="${DOMAIN}/${LABEL}"
+
+# bootout is idempotent enough for our needs — ignore failure if not loaded.
+launchctl bootout "${SERVICE}" 2>/dev/null || true
+launchctl bootstrap "${DOMAIN}" "${DEST}"
+launchctl enable   "${SERVICE}"
+launchctl kickstart -k "${SERVICE}"
+
+echo "✅ installed and started: ${LABEL}"
+echo "   plist:    ${DEST}"
+echo "   logs:     ${REPO_ROOT}/logs/agent.log"
+echo "             ${REPO_ROOT}/logs/agent.launchd.log  (early-startup errors)"
+echo
+echo "Useful commands:"
+echo "   launchctl print ${SERVICE} | head -40       # status"
+echo "   tail -F ${REPO_ROOT}/logs/agent.log         # follow app log"
+echo "   mac/launchd/uninstall.sh                    # stop + remove"
