@@ -118,7 +118,7 @@ For full broker portability *without* swapping client libraries, run the produce
 
 ## ⚡ Quick start
 
-You'll need: an [Azure subscription](https://azure.microsoft.com/free) (the free tier is fine), the [`az` CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), [`uv`](https://github.com/astral-sh/uv), and a Mac signed into iMessage.
+You'll need: an [Azure subscription](https://azure.microsoft.com/en-us/free) (the free tier is fine), the [`az` CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), [`uv`](https://github.com/astral-sh/uv), and a Mac signed into iMessage.
 
 ### 1. Provision Azure (~2 minutes)
 
@@ -342,3 +342,5 @@ MIT — see [`LICENSE`](./LICENSE).
 <div align="center">
 <sub>Built with 🐩 by the Brady Gaster Squad. DevRel-approved.</sub>
 </div>
+
+🐉

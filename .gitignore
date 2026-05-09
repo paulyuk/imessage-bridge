@@ -1,7 +1,7 @@
 *.pyc
 __pycache__/
 config.json
-logs/
+/logs/
 .env
 .venv/
 uv.lock.tmp
