@@ -1,0 +1,56 @@
+{
+  "name": "imessage-bridge",
+  "version": "0.2.0-alpha.1",
+  "description": "OAuth-only iMessage bridge: producer enqueues to AMQP 1.0 (Azure Service Bus by default), Mac agent sends via Messages.app. Identity-only auth, no SAS, no PATs.",
+  "keywords": [
+    "imessage",
+    "amqp",
+    "azure",
+    "service-bus",
+    "openclaw",
+    "agentic",
+    "oauth",
+    "entra",
+    "messages.app",
+    "macos",
+    "applescript"
+  ],
+  "license": "MIT",
+  "author": "Paul Yuknewicz",
+  "homepage": "https://github.com/paulyuk/imessage-bridge#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/paulyuk/imessage-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/paulyuk/imessage-bridge/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "imessage-bridge": "./bin/imessage-bridge.mjs"
+  },
+  "files": [
+    "bin/imessage-bridge.mjs",
+    "bin/doctor.sh",
+    "src/config.mjs",
+    "src/producer.mjs",
+    "src/agent.mjs",
+    "src/messages.mjs",
+    "src/log.mjs",
+    "config.example.json",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "scripts": {
+    "test": "node --test src/*.test.mjs",
+    "doctor": "./bin/doctor.sh"
+  },
+  "dependencies": {
+    "@azure/identity": "^4.4.1",
+    "@azure/service-bus": "^7.9.5"
+  }
+}

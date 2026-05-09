@@ -10,10 +10,10 @@ These are agent-readable + human-readable runbooks for the most common things yo
 
 | Skill | Triggered when the user says... | One-line summary |
 |---|---|---|
-| [`install-producer`](./install-producer/SKILL.md) | "install on linux" / "set up the sender" / "install on openclaw" | Get the producer CLI working on a Linux/cloud/openclaw host so it can enqueue messages over AMQP 1.0. |
-| [`install-mac`](./install-mac/SKILL.md) | "install on mac" / "make this run permanently" / "install as daemon" | Install the consumer agent as a permanent macOS LaunchAgent that long-polls the queue and sends via Messages.app. |
-| [`send-message`](./send-message/SKILL.md) | "send a text to..." / "imessage..." / "use the bridge to text..." | Run the producer once with a recipient and a body. Verify the round-trip. |
-| [`doctor`](./doctor/SKILL.md) | "is the bridge healthy?" / "doctor" / "diagnose this" | Run `bin/doctor.sh` for a full environment + auth + RBAC + daemon health check with actionable fixes. |
+| [`install-producer`](./install-producer/SKILL.md) | "install on linux" / "set up the sender" / "install on openclaw" | Get the producer CLI working on a Linux/cloud/openclaw host so it can enqueue messages over AMQP 1.0. The fast path is `npm i -g imessage-bridge@alpha`. |
+| [`install-mac`](./install-mac/SKILL.md) | "install on mac" / "make this run permanently" / "install as daemon" | Install the consumer agent on a Mac. Foreground via `npx imessage-bridge@alpha agent`; the permanent macOS LaunchAgent installer (still Python-backed today) is in `mac/launchd/`. |
+| [`send-message`](./send-message/SKILL.md) | "send a text to..." / "imessage..." / "use the bridge to text..." | Run the producer once with a recipient and a body: `npx imessage-bridge@alpha send --to "+1..." --body "..."`. Verify the round-trip. |
+| [`doctor`](./doctor/SKILL.md) | "is the bridge healthy?" / "doctor" / "diagnose this" | Run `npx imessage-bridge@alpha doctor` (or `./bin/doctor.sh` if cloned) for a full environment + auth + RBAC + daemon health check. |
 | [`logs`](./logs/SKILL.md) | "show me the logs" / "did message X go through?" / "why won't the daemon start?" | Tail / grep / interpret the two log files (app + launchd stdout). |
 
 ## Format

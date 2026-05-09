@@ -35,11 +35,22 @@ Also run this proactively:
 
 ## The command
 
+If you cloned the repo:
+
 ```bash
 ./bin/doctor.sh
 ```
 
-That's it — runs in <10 seconds, exits non-zero on failure so it composes with CI / cron.
+If you installed via npm:
+
+```bash
+npx imessage-bridge@alpha doctor
+# (this delegates to the same bin/doctor.sh shipped in the package)
+```
+
+Either way it runs in <10 seconds and exits non-zero on failure so it composes with CI / cron.
+
+> **npm-only note:** `bin/doctor.sh` includes a `uv run pytest` check that assumes the cloned repo with Python deps installed. If you're using the npm package without a clone, that section will warn — that's expected and safe to ignore. The env / config / auth / RBAC / launchd checks all still work.
 
 ## What it checks
 

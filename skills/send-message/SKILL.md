@@ -29,18 +29,24 @@ If the user gives a name (not a number), check for a contacts file (commonly `~/
 
 ## Prerequisites
 
-- Producer is installed and configured on this host (see [`install-producer` skill](../install-producer/SKILL.md)).
+- Producer is installed and configured on this host (see [`install-producer` skill](../install-producer/SKILL.md)). The fast path: `npm i -g imessage-bridge@alpha` plus a `config.json` in the working dir (or `IMSG_CONFIG=...`).
 - The recipient's phone number in **E.164 format** (`+` country code + national number, no spaces or dashes). Examples: `+14255551234`, `+15555550100`, `+447911123456`.
 - The Mac agent is running on the receiving Mac (see [`install-mac` skill](../install-mac/SKILL.md)). If the Mac is offline the message will sit on the queue and deliver when the Mac reconnects.
 
 ## The command
 
 ```bash
-uv run producer/cli.py --to "+15555550100" --body "your message here"
+npx imessage-bridge@alpha send --to "+15555550100" --body "your message here"
+```
+
+Or if you installed globally (`npm i -g imessage-bridge@alpha`):
+
+```bash
+imessage-bridge send --to "+15555550100" --body "your message here"
 ```
 
 That's it. One command, two flags. The producer:
-1. Loads `config.json` for the namespace + queue.
+1. Loads `./config.json` (or `$IMSG_CONFIG`) for the namespace + queue.
 2. Acquires an OAuth token via `DefaultAzureCredential` (your `az login` cache).
 3. Optionally appends the configured `signature` (default `🐩`) to the body.
 4. Enqueues a `ServiceBusMessage` with a unique `message_id`.
@@ -49,7 +55,7 @@ That's it. One command, two flags. The producer:
 ## Multi-line bodies
 
 ```bash
-uv run producer/cli.py --to "+15555550100" --body "line one
+npx imessage-bridge@alpha send --to "+15555550100" --body "line one
 line two
 line three"
 ```
@@ -57,7 +63,7 @@ line three"
 Or pipe from a file via process substitution:
 
 ```bash
-uv run producer/cli.py --to "+15555550100" --body "$(< /tmp/digest.txt)"
+npx imessage-bridge@alpha send --to "+15555550100" --body "$(< ./digest.txt)"
 ```
 
 ## Verify the message landed
@@ -82,9 +88,10 @@ Or just check the recipient's phone — that's the ground truth.
 |---|---|---|
 | `enqueued ... -> ...` but never delivered | Mac agent silent | Run [`logs` skill](../logs/SKILL.md) on the Mac; likely the agent isn't running or has lost AMQP connection |
 | `osascript failed: buddy "+1..." doesn't exist` in Mac log | Number not registered with iMessage / not in user's contacts | Recipient must have iMessage enabled on this number, OR add as contact in Messages.app first |
-| `Unauthorized` / 401 from producer | Missing Sender role | See [`install-producer`](../install-producer/SKILL.md) step 5 |
+| `Unauthorized` / 401 from producer | Missing Sender role | See [`install-producer`](../install-producer/SKILL.md) step 4 |
 | Multi-line body mangled into one line | Shell ate newlines | Quote the body with `"..."` not `'...'`, or use a file |
 | Sender wants to disable the 🐩 signature | Default config behavior | In `config.json`: `"signature": ""` |
+| `command not found: imessage-bridge` | Not installed globally | Use `npx imessage-bridge@alpha …` or `npm i -g imessage-bridge@alpha` |
 
 ## Anti-patterns — do not
 

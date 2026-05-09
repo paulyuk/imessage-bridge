@@ -2,34 +2,55 @@
 
 End-to-end install for both producer (anywhere) and Mac agent. Assumes you've completed the [Azure quickstart](./infra/azure-quickstart.md) and have `az login` working.
 
+## TL;DR — npm path (recommended for end users)
+
+```bash
+# one-liner — no clone, no virtualenv, just Node 18+:
+npx imessage-bridge@alpha send --to "+15555550100" --body "smoke test"
+```
+
+Needs a `config.json` in the current directory (or `IMSG_CONFIG=/path/to/config.json`). Skip to [§2 Configure](#2-configure) below to create one. Everything else (`agent`, `doctor`, `--help`) works the same way under `npx imessage-bridge@alpha …`.
+
+Want it permanently on `PATH`? `npm i -g imessage-bridge@alpha`, then drop the `npx` prefix.
+
 ## Prerequisites
 
 | Tool          | Why                                  | Install                                                              |
 |---------------|--------------------------------------|----------------------------------------------------------------------|
-| `uv`          | Python tooling (we never use pip)    | `curl -LsSf https://astral.sh/uv/install.sh \| sh`                   |
+| Node.js ≥ 18  | Runtime for the published CLI        | https://nodejs.org/ (or `brew install node`, `nvm install 20`, …)    |
 | `az` CLI      | Azure provisioning + OAuth login     | https://learn.microsoft.com/cli/azure/install-azure-cli              |
-| `gh` CLI      | GitOps (clone, PR)                   | https://cli.github.com/                                              |
-| Python ≥ 3.10 | Runtime (uv installs it for you)     | `uv python install 3.12`                                             |
+| `gh` CLI      | Optional — only needed if you clone the repo (contributors / launchd installer) | https://cli.github.com/ |
+| `uv`          | Optional — only needed for repo contributors (Python parts) | `curl -LsSf https://astral.sh/uv/install.sh \| sh`           |
 
-## 1. Clone and sync
+## 1. Clone (optional)
+
+If you only want to send messages, **skip this** — `npx imessage-bridge@alpha` is enough. Clone only if you want to:
+
+- Use the `mac/launchd/` installer to run the agent as a permanent macOS daemon
+- Contribute to the repo
+- Run the Python test suite
 
 ```bash
 gh repo clone paulyuk/imessage-bridge
 cd imessage-bridge
-uv sync                  # installs deps from pyproject.toml + lockfile
+uv sync                  # installs Python deps for contributors
 uv sync --extra dev      # add this if you want to run tests
 ```
 
 ## 2. Configure
 
+Drop a `config.json` next to wherever you'll run the CLI:
+
 ```bash
-cp config.example.json config.json
-# edit:
-#   "namespace_fqdn": "<your-namespace>.servicebus.windows.net"
-#   "queue":          "imsg-queue"
+cat > config.json <<'JSON'
+{
+  "namespace_fqdn": "<your-namespace>.servicebus.windows.net",
+  "queue": "imsg-queue"
+}
+JSON
 ```
 
-`config.json` is gitignored. Never commit it.
+`config.json` is gitignored. Never commit it. Prefer not to clutter your cwd? Set `IMSG_CONFIG=~/.config/imessage-bridge.json` and the CLI will read from there.
 
 ## 3. Auth (one-time)
 
@@ -45,7 +66,7 @@ az login --use-device-code
 
 ```bash
 # verify auth + role assignment works:
-uv run producer/cli.py --to "+15555550100" --body "smoke test"
+npx imessage-bridge@alpha send --to "+15555550100" --body "smoke test"
 # expect: enqueued <uuid> -> +15555550100
 ```
 
@@ -58,7 +79,7 @@ Think of the daemon setup as one arc: **foreground-test → install → verify �
 ### 5.1 Foreground-test first (required once)
 
 ```bash
-uv run mac/agent.py
+npx imessage-bridge@alpha agent
 # logs to stdout + ./logs/agent.log
 ```
 
@@ -73,7 +94,10 @@ The first successful send should trigger a macOS **Automation** prompt. Click
 
 ### 5.2 Install the LaunchAgent
 
+> 🛠 **Note — current installer wraps the Python agent.** The launchd installer below renders a plist that runs `uv run mac/agent.py`. The Node agent (`npx imessage-bridge@alpha agent`) works identically and is fully tested; a Node-native launchd installer is the next milestone (v0.2.x). For now, the launchd path requires the cloned repo + `uv`. If you'd rather skip launchd entirely, run `npx imessage-bridge@alpha agent` inside `tmux` / `screen`.
+
 ```bash
+# from the cloned repo:
 ./mac/launchd/install.sh
 ```
 
@@ -121,9 +145,9 @@ launchctl kickstart -k gui/$(id -u)/com.imessage-bridge.agent      # restart now
 ```
 
 The two log files tell different stories:
-- `logs/agent.log` — structured application logs (Python `logging`).
+- `logs/agent.log` — structured application logs.
 - `logs/agent.launchd.log` — stdout/stderr from launchd, including errors that
-  happen *before* Python logging initializes (missing config, import failures,
+  happen *before* logging initializes (missing config, import failures,
   Automation denials).
 
 ## 6. macOS permissions (the gotcha)
@@ -136,18 +160,26 @@ You can audit this in:
 
 > System Settings → Privacy & Security → Automation → (Terminal / uv / launchd) → ✅ Messages
 
-## 7. Run tests
+## 7. Run tests (contributors only)
 
 ```bash
-uv run pytest
+npm test            # Node tests (16 cases, mocked)
+uv run pytest       # Python tests (mocked Service Bus + osascript)
 ```
 
-5 tests, mocked Service Bus + osascript. No Azure or Mac required.
+Both run fully offline — no Azure or Mac required.
 
 ## Upgrade / update
 
+End users:
+```bash
+# nothing to do — npx always pulls the latest @alpha
+npx imessage-bridge@alpha --version
+```
+
+Contributors / launchd users:
 ```bash
 git pull
-uv sync                           # picks up new deps
+uv sync                           # picks up new Python deps
 ./mac/launchd/install.sh          # re-render plist + restart agent (idempotent)
 ```

@@ -6,14 +6,13 @@
 
 A small, opinionated bridge that lets an inexpensive Linux/cloud "producer" (or your favorite [openclaw](https://github.com/openclaw/openclaw) 🦞) enqueue messages securely and async over **AMQP 1.0** into a managed broker, and a tiny agent on your Mac pulls them out and sends them through `Messages.app`. No inbound ports to attack. No SAS keys. No PATs.
 
+[![npm version](https://img.shields.io/npm/v/imessage-bridge?label=npm%40alpha&color=cb3837)](https://www.npmjs.com/package/imessage-bridge)
 [![🦞 openclaw skill](https://img.shields.io/badge/🦞-openclaw--style_claw-c1473a)](https://github.com/openclaw/openclaw)
 [![AMQP 1.0](https://img.shields.io/badge/wire-AMQP%201.0-0b6e3b)](https://www.amqp.org/)
 [![Dapr-friendly](https://img.shields.io/badge/swap--in-Dapr%20pubsub-008ce5)](https://docs.dapr.io/reference/components-reference/supported-pubsub/)
 [![OAuth only](https://img.shields.io/badge/auth-OAuth%20%2F%20Entra-ff6f00)](./SECURITY.md)
 [![Brady Gaster Squad](https://img.shields.io/badge/squad-brady%20gaster-blueviolet)](https://github.com/bradygaster/squad)
-[![Built with uv](https://img.shields.io/badge/python-uv-de5fe9)](https://github.com/astral-sh/uv)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
-[![~250 LOC](https://img.shields.io/badge/code-~250%20LOC-lightgrey)](./producer/cli.py)
 [![macOS LaunchAgent](https://img.shields.io/badge/runs%20on-macOS%20LaunchAgent-000000)](./mac/launchd/install.sh)
 
 [Quick start](#-quick-start) · [Architecture](#-architecture) · [Standards & portability](#-standards--portability) · [Install](./INSTALL.md) · [Troubleshooting](./TROUBLESHOOTING.md) · [Security](#-security) · [Contributing](#-contributing)
@@ -36,25 +35,32 @@ iMessage is a walled garden. If you want to send an iMessage programmatically, y
 
 ## ⚡ Quick start
 
-> **The shortest path to a delivered iMessage:** clone, configure, run two commands, see your phone light up. ~5 minutes from cold start.
+> **The 60-second demo.** Once you've done the one-time Azure setup below, sending an iMessage from anywhere is one line:
 
-You'll need: an [Azure subscription](https://azure.microsoft.com/en-us/free) (the free tier is fine), the [`az` CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), [`uv`](https://github.com/astral-sh/uv), and a Mac signed into iMessage.
+```bash
+npx imessage-bridge@alpha send --to "+15555550100" --body "hi from the bridge 🐩"
+```
+
+That's it. No clone, no `uv sync`, no virtualenv. Just `npx`. (The `@alpha` tag is pinned through the v0.2 prerelease — once we ship stable, drop the `@alpha`.)
+
+You'll need: [Node.js 18+](https://nodejs.org/), an [Azure subscription](https://azure.microsoft.com/en-us/free) (free tier is fine), the [`az` CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), and a Mac signed into iMessage somewhere on your network.
 
 ### Two ways to drive this
 
-This repo ships both a **terminal CLI** and a set of **operational skills** under [`skills/`](./skills/). Pick whichever matches how you work — they do exactly the same things.
+This project ships both a **terminal CLI** (via npm) and a set of **operational skills** under [`skills/`](./skills/). Pick whichever matches how you work — they do exactly the same things.
 
 | Goal | 🖥️ Terminal | 💬 Or just say to your agent |
 |---|---|---|
-| Install on a Linux/cloud/openclaw producer | follow [steps 1–5 below](#1-provision-the-queue-2-minutes) | *"install the imessage-bridge producer on this box"* → [`install-producer`](./skills/install-producer/SKILL.md) |
-| Install on the receiving Mac (as a daemon) | follow [steps 1–4, then step 6](#6-make-the-mac-agent-permanent) | *"install imessage-bridge on this Mac as a daemon"* → [`install-mac`](./skills/install-mac/SKILL.md) |
-| Send a message | `uv run producer/cli.py --to "+15555550100" --body "hi"` | *"send 'hi' to +15555550100 via the bridge"* → [`send-message`](./skills/send-message/SKILL.md) |
-| Health check | `./bin/doctor.sh` | *"is the imessage-bridge healthy?"* / *"doctor"* → [`doctor`](./skills/doctor/SKILL.md) |
+| Send a message | `npx imessage-bridge@alpha send --to "+15555550100" --body "hi"` | *"send 'hi' to +15555550100 via the bridge"* → [`send-message`](./skills/send-message/SKILL.md) |
+| Run the Mac receiver (foreground) | `npx imessage-bridge@alpha agent` | *"run the imessage-bridge receiver"* |
+| Install on a Linux/cloud/openclaw producer | `npm i -g imessage-bridge@alpha` (or just `npx`) | *"install the imessage-bridge producer on this box"* → [`install-producer`](./skills/install-producer/SKILL.md) |
+| Install on the receiving Mac (as a daemon) | follow [step 6 below](#6-make-the-mac-agent-permanent) | *"install imessage-bridge on this Mac as a daemon"* → [`install-mac`](./skills/install-mac/SKILL.md) |
+| Health check | `npx imessage-bridge@alpha doctor` | *"is the imessage-bridge healthy?"* / *"doctor"* → [`doctor`](./skills/doctor/SKILL.md) |
 | Find a message in the logs | `grep <uuid> logs/agent.log` | *"did the iMessage to +1… go through?"* / *"show me the bridge logs"* → [`logs`](./skills/logs/SKILL.md) |
 
 > 🦞 **Skill consumers:** [Copilot CLI](https://github.com/cli/cli), [Cursor](https://cursor.com), [Claude Code](https://www.claude.com/product/claude-code), and any [openclaw](https://github.com/openclaw/openclaw) runtime pick up the [`skills/`](./skills/) folder automatically — `cd` into the repo (Copilot CLI / Claude Code), include it in your workspace (Cursor), or symlink: `ln -s "$(pwd)/skills" ~/.openclaw/skills/imessage-bridge`. Each `SKILL.md` has `trigger_phrases` frontmatter so the right runbook surfaces on the right intent.
 
-The rest of this section is the **terminal walkthrough** for first-time setup. Once installed, you can drive everything from prompts above.
+The rest of this section is the **first-time setup walkthrough**: provision the queue once, grant two RBAC roles, drop a tiny `config.json` next to where you'll run the CLI, and you're done. After that, every send is `npx imessage-bridge@alpha send …`.
 
 ### 1. Provision the queue (~2 minutes)
 
@@ -97,15 +103,9 @@ az role assignment create --assignee $ME --role "Azure Service Bus Data Receiver
 
 > 🔐 **Identity-only auth.** This project never uses Service Principals, client secrets, certificates, SAS keys, or PATs. Both sides authenticate with `az login` (Azure AD user identity); `DefaultAzureCredential` discovers the cached token. See [SECURITY.md](./SECURITY.md).
 
-### 3. Clone, configure, install
+### 3. Drop a `config.json` next to where you'll run the CLI
 
-Clone the repo, create a local config.json, and populate it with the Service Bus namespace FQDN you created in step 1.
-
-```bash
-gh repo clone paulyuk/imessage-bridge
-cd imessage-bridge
-uv sync                                  # installs deps from pyproject/lockfile
-```
+The npm package reads `./config.json` from the current directory (or `$IMSG_CONFIG` if set). No clone required.
 
 After you provisioned the namespace in step 1, determine the namespace FQDN and put it into config.json. The namespace FQDN is simply:
 
@@ -115,25 +115,7 @@ Example: if you created `NS=$RG-$(whoami)` and that evaluated to `imessage-bridg
 
     imessage-bridge-yourname.servicebus.windows.net
 
-Create the config file (one of these options):
-
-- Quick manual edit (recommended):
-
-```bash
-cp config.example.json config.json
-# open config.json in your editor and replace the namespace_fqdn and queue values
-# Example config.json contents to paste:
-# {
-#  "namespace_fqdn": "imessage-bridge-yourname.servicebus.windows.net",
-#  "queue": "imsg-queue",
-#  "model": "gpt-5.4-mini",
-#  "model_version": "latest",
-#  "poll_interval_s": 3,
-#  "log_path": "./logs/agent.log"
-# }
-```
-
-- Or generate it from the shell (safe / scriptable):
+Create the config file from the shell (safe / scriptable):
 
 ```bash
 NS=imessage-bridge-yourname   # or whatever you picked above
@@ -142,13 +124,13 @@ cat > config.json <<JSON
 {
   "namespace_fqdn": "$FQDN",
   "queue": "imsg-queue",
-  "model": "gpt-5.4-mini",
-  "model_version": "latest",
   "poll_interval_s": 3,
   "log_path": "./logs/agent.log"
 }
 JSON
 ```
+
+Prefer to keep config out of the working dir? Set `IMSG_CONFIG=~/.config/imessage-bridge.json` and the CLI will pick it up.
 
 Notes:
 - config.json is gitignored. Do not commit it.
@@ -175,10 +157,10 @@ That's it for auth. `DefaultAzureCredential` picks up the cached `az` tokens aut
 
 ```bash
 # from anywhere (Linux, Mac, cloud) — enqueue:
-uv run producer/cli.py --to "+14255551234" --body "hey from the bridge 👋"
+npx imessage-bridge@alpha send --to "+14255551234" --body "hey from the bridge 👋"
 
-# on the Mac — start the consumer:
-uv run mac/agent.py
+# on the Mac — start the consumer in the foreground:
+npx imessage-bridge@alpha agent
 ```
 
 The Mac picks it up within a few seconds and `Messages.app` sends it. ✨
@@ -192,8 +174,15 @@ The safe path is one clear arc: **foreground-test → install → verify → don
 > that prompt — the agent will just fail with *"Not authorized."*
 
 ```bash
-uv run mac/agent.py        # ctrl-C after you click Allow on the Automation prompt
-./mac/launchd/install.sh   # render plist, register with launchd, start now
+npx imessage-bridge@alpha agent     # ctrl-C after you click Allow on the Automation prompt
+```
+
+For the persistent LaunchAgent installer, clone the repo (it ships the plist template + installer):
+
+```bash
+gh repo clone paulyuk/imessage-bridge && cd imessage-bridge
+uv sync                       # contributors only — see Python tooling section
+./mac/launchd/install.sh      # render plist, register with launchd, start now
 ```
 
 ```bash
@@ -201,7 +190,9 @@ launchctl print gui/$(id -u)/com.imessage-bridge.agent | head -20 # status
 tail -F logs/agent.log                                          # follow app logs
 ```
 
-That's it. The installer is idempotent, so re-run it after `git pull` to pick up
+> 🛠 **Heads up — Node daemon installer is a v0.2.x follow-up.** Today the launchd installer wraps the original Python agent (`uv run mac/agent.py`); the Node agent runs identically and is fully tested, but its launchd installer ships next. If you don't want to install `uv`, just run `npx imessage-bridge@alpha agent` in a long-lived `tmux` / `screen` session for now.
+
+The installer is idempotent, so re-run it after `git pull` to pick up
 new code. Full daemon setup and common commands: [INSTALL.md](./INSTALL.md#5-start-the-mac-agent).
 Troubleshooting starts with the two log files: [TROUBLESHOOTING.md](./TROUBLESHOOTING.md#launchd).
 
@@ -210,7 +201,7 @@ Troubleshooting starts with the two log files: [TROUBLESHOOTING.md](./TROUBLESHO
 ```mermaid
 flowchart LR
     subgraph anywhere["💻 Anywhere — Linux / cloud / your bot"]
-        P["Producer<br/><code>uv run producer/cli.py</code>"]
+        P["Producer<br/><code>npx imessage-bridge send</code>"]
     end
 
     subgraph azure["☁️ Cloud — managed AMQP 1.0 broker (Azure Service Bus)"]
@@ -219,7 +210,7 @@ flowchart LR
     end
 
     subgraph mac["🖥️ Your Mac — signed into iMessage"]
-        A["Agent<br/><code>uv run mac/agent.py</code>"]
+        A["Agent<br/><code>npx imessage-bridge agent</code>"]
         M["Messages.app"]
     end
 
@@ -294,9 +285,11 @@ For full broker portability *without* swapping client libraries, run the produce
 
 > **TL;DR:** This isn't an Azure-only toy. Azure Service Bus is the default because it's the cheapest AMQP-with-AAD-OAuth broker on the market for low volumes (~$0/month at our scale). Everything else is standards.
 
-## 🐍 Python tooling — we use `uv`
+## 🐍 For contributors — Python tooling uses `uv`
 
-This project standardizes on **[uv](https://github.com/astral-sh/uv)** for everything Python. Faster, lockfile-driven, reproducible. We do not invoke `python3` or `pip` directly. Because we're rad.
+End users don't need any of this — `npx imessage-bridge@alpha` is the supported install path.
+
+If you're hacking on the repo itself (the original agent + tests are still Python; the `mac/launchd/` installer also shells out to `uv`), this project standardizes on **[uv](https://github.com/astral-sh/uv)**. Faster, lockfile-driven, reproducible. We do not invoke `python3` or `pip` directly. Because we're rad.
 
 | Task               | ❌ Don't                       | ✅ Do                            |
 |--------------------|--------------------------------|----------------------------------|
