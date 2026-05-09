@@ -1,0 +1,18 @@
+{
+  "name": "imessage-bridge-dapr",
+  "version": "0.0.1-alpha.1",
+  "description": "Dapr pubsub variant of imessage-bridge — runs over any of Dapr's 15+ pluggable pubsub backends. Default: local Redis container.",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "bin": {
+    "imessage-bridge-dapr": "./src/cli.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "dapr:run": "dapr run --app-id imsg-bridge --app-port 3000 --dapr-http-port 3500 --dapr-grpc-port 50001 --resources-path ./components -- node src/cli.mjs agent"
+  },
+  "dependencies": {
+    "@dapr/dapr": "^3.5.0"
+  }
+}
