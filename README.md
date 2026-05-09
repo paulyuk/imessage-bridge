@@ -126,6 +126,22 @@ For full broker portability *without* swapping client libraries, run the produce
 
 You'll need: an [Azure subscription](https://azure.microsoft.com/en-us/free) (the free tier is fine), the [`az` CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), [`uv`](https://github.com/astral-sh/uv), and a Mac signed into iMessage.
 
+### Two ways to drive this
+
+This repo ships both a **terminal CLI** and a set of **operational skills** under [`skills/`](./skills/). Pick whichever matches how you work — they do exactly the same things.
+
+| Goal | 🖥️ Terminal | 💬 Or just say to your agent |
+|---|---|---|
+| Install on a Linux/cloud/openclaw producer | follow [steps 1–5 below](#1-provision-azure-2-minutes) | *"install the imessage-bridge producer on this box"* → [`install-producer`](./skills/install-producer/SKILL.md) |
+| Install on the receiving Mac (as a daemon) | follow [steps 1–4, then step 6](#6-make-the-mac-agent-permanent) | *"install imessage-bridge on this Mac as a daemon"* → [`install-mac`](./skills/install-mac/SKILL.md) |
+| Send a message | `uv run producer/cli.py --to "+15555550100" --body "hi"` | *"send 'hi' to +15555550100 via the bridge"* → [`send-message`](./skills/send-message/SKILL.md) |
+| Health check | `./bin/doctor.sh` | *"is the imessage-bridge healthy?"* / *"doctor"* → [`doctor`](./skills/doctor/SKILL.md) |
+| Find a message in the logs | `grep <uuid> logs/agent.log` | *"did the iMessage to +1… go through?"* / *"show me the bridge logs"* → [`logs`](./skills/logs/SKILL.md) |
+
+> 🦞 **Skill consumers:** [Copilot CLI](https://github.com/cli/cli), [Cursor](https://cursor.com), [Claude Code](https://www.claude.com/product/claude-code), and any [openclaw](https://github.com/openclaw/openclaw) runtime pick up the [`skills/`](./skills/) folder automatically — `cd` into the repo (Copilot CLI / Claude Code), include it in your workspace (Cursor), or symlink: `ln -s "$(pwd)/skills" ~/.openclaw/skills/imessage-bridge`. Each `SKILL.md` has `trigger_phrases` frontmatter so the right runbook surfaces on the right intent.
+
+The rest of this section is the **terminal walkthrough** for first-time setup. Once installed, you can drive everything from prompts above.
+
 ### 1. Provision Azure (~2 minutes)
 
 ```bash
