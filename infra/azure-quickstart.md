@@ -57,14 +57,14 @@ cp config.example.json config.json
 
 On the producer host:
 ```bash
-uv run producer/cli.py --to "+15555550100" --body "smoke test"
+npx imessage-bridge@alpha send --to "+15555550100" --body "smoke test"
 # expect: enqueued <uuid> -> +15555550100
 ```
 
 On Mac:
 ```bash
-uv run mac/agent.py
-# expect log line "received <uuid>" then "sent ok" within seconds
+npx imessage-bridge@alpha agent
+# expect log line "sending <uuid>" then "sent <uuid>" within seconds
 ```
 
 ## Identity-only — what's *not* allowed

@@ -28,7 +28,7 @@ User says any of:
 
 Also run this proactively:
 - After `./mac/launchd/install.sh`
-- After `git pull` + `uv sync`
+- After `git pull` + `npm install`
 - After any `config.json` change
 - After `az login` on a new identity
 - Whenever a message takes longer than expected
@@ -38,28 +38,28 @@ Also run this proactively:
 If you cloned the repo:
 
 ```bash
-./bin/doctor.sh
+./scripts/doctor.sh
 ```
 
 If you installed via npm:
 
 ```bash
 npx imessage-bridge@alpha doctor
-# (this delegates to the same bin/doctor.sh shipped in the package)
+# (this delegates to the same scripts/doctor.sh shipped in the package)
 ```
 
 Either way it runs in <10 seconds and exits non-zero on failure so it composes with CI / cron.
 
-> **npm-only note:** `bin/doctor.sh` includes a `uv run pytest` check that assumes the cloned repo with Python deps installed. If you're using the npm package without a clone, that section will warn — that's expected and safe to ignore. The env / config / auth / RBAC / launchd checks all still work.
+> **npm-only note:** `scripts/doctor.sh` includes a `npm test` check that needs the cloned repo's source. If you're using the npm package without a clone, that section will warn — that's expected and safe to ignore. The env / config / auth / RBAC / launchd checks all still work.
 
 ## What it checks
 
 | Section | Check |
 |---|---|
-| **Environment** | `uv` is installed; Python 3.10+ available |
+| **Environment** | `node` ≥ 22 (Active LTS); `npm` available |
 | **Config** | `config.json` exists, valid JSON, `namespace_fqdn` is not the placeholder, `queue` is set |
 | **Azure auth** | `az` CLI installed; logged in; can mint a fresh AAD token; current identity has `Service Bus Data Sender` or `Receiver` role on the queue |
-| **Tests** | `uv run pytest -q` passes (mocked Service Bus + osascript) |
+| **Tests** | `npm test` passes (mocked Service Bus + osascript) |
 | **Mac only — launchd** | `com.imessage-bridge.agent` exists and `state = running`; `logs/agent.log` written within the last hour |
 | **Linux only — producer** | Skips daemon checks; reminds about smoke-test command |
 
@@ -74,7 +74,7 @@ Either way it runs in <10 seconds and exits non-zero on failure so it composes w
 ## Verbose mode
 
 ```bash
-VERBOSE=1 ./bin/doctor.sh
+VERBOSE=1 ./scripts/doctor.sh
 ```
 
 Prints the actual command output for each passing check (useful when you want to confirm exactly which subscription / role / namespace is being detected).
@@ -84,12 +84,12 @@ Prints the actual command output for each passing check (useful when you want to
 ### Healthy Mac
 
 ```
-── Environment ──   ✅ uv installed   ✅ Python 3.10+
+── Environment ──   ✅ node ≥22 (Active LTS)   ✅ npm available
 ── Config ──        ✅ config.json is valid JSON
                     ✅ namespace_fqdn = my-bridge.servicebus.windows.net
 ── Azure auth ──    ✅ az is logged in
                     ✅ have Azure Service Bus Data Receiver on imsg-queue
-── Tests ──         ✅ all pytest tests pass
+── Tests ──         ✅ all node tests pass
 ── Mac agent ──     ✅ com.imessage-bridge.agent state = running
                     ✅ logs/agent.log written 3m ago (idle long-poll is normal)
 ── Summary ──       ✅ healthy
@@ -141,5 +141,5 @@ If doctor returns ✅ healthy but messages still don't deliver:
 ## Anti-patterns — do not
 
 - ❌ Use `doctor.sh` as a substitute for reading [`TROUBLESHOOTING.md`](../../TROUBLESHOOTING.md) on novel failures
-- ❌ Modify `bin/doctor.sh` to skip a failing check just to make it green — fix the underlying issue
+- ❌ Modify `scripts/doctor.sh` to skip a failing check just to make it green — fix the underlying issue
 - ❌ Assume `✅ healthy` means the recipient definitely got a message — only the recipient's phone proves that

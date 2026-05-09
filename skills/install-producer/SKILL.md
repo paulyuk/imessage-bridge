@@ -15,7 +15,7 @@ license: MIT
 
 # Install the producer (Linux / cloud / openclaw)
 
-The producer is a tiny CLI that enqueues messages onto an AMQP 1.0 queue (Azure Service Bus by default). It does **not** receive messages and does **not** need inbound network access. The recommended install is the published npm package — no clone, no virtualenv.
+The producer is a tiny CLI that enqueues messages onto an AMQP 1.0 queue (Azure Service Bus by default). It does **not** receive messages and does **not** need inbound network access. The recommended install is the published npm package — no clone, no build step.
 
 ## When to use this skill
 
@@ -30,7 +30,7 @@ User says any of:
 | What | Why | Install |
 |---|---|---|
 | Linux (Debian/Ubuntu/Arch/RHEL etc.) or any POSIX host | Runtime | n/a |
-| Node.js ≥ 18 | Runtime for the published CLI | https://nodejs.org/ (or `nvm install 20`, `apt install nodejs`, `brew install node`) |
+| Node.js ≥ 22 LTS (recommend 24) | Runtime for the published CLI | `nvm install 24 && nvm use 24` (or `brew install node`, or https://nodejs.org/) |
 | `az` CLI | OAuth login + RBAC | https://learn.microsoft.com/cli/azure/install-azure-cli |
 | An Azure subscription with a Service Bus queue already provisioned | The broker | See [`infra/azure-quickstart.md`](../../infra/azure-quickstart.md) §1 — runs once per project, not per host |
 
@@ -67,24 +67,26 @@ imessage-bridge send --to "+15555550100" --body "smoke test from $(hostname)"
 
 ## Alternate: install from source (contributors)
 
-If you're hacking on the project itself, clone and use the original Python entry-point:
+If you're hacking on the project itself, clone and run from the repo:
 
 ```bash
 gh repo clone paulyuk/imessage-bridge && cd imessage-bridge
-uv sync
+npm install
 cp config.example.json config.json && $EDITOR config.json
 az login --use-device-code
-uv run producer/cli.py --to "+15555550100" --body "smoke test"
+npm run dev -- send --to "+15555550100" --body "smoke test"
+# or after a build:
+npm run build && ./dist/cli.js send --to "+15555550100" --body "smoke test"
 ```
 
-The Node CLI (`bin/imessage-bridge.mjs`) and the Python CLI (`producer/cli.py`) are interchangeable — same wire format, same config, same RBAC.
+The cloned source and the published `imessage-bridge@alpha` package run the same code — same wire format, same config, same RBAC.
 
 ## Verify it worked
 
 ```bash
 imessage-bridge doctor
 # expected (Linux host):
-#   ✅ Node 18+
+#   ✅ node ≥22 (Active LTS)
 #   ✅ config.json is valid JSON
 #   ✅ namespace_fqdn = ...
 #   ✅ az is logged in
@@ -93,7 +95,7 @@ imessage-bridge doctor
 #   ✅ healthy
 ```
 
-> Note: `doctor` invokes `bin/doctor.sh` which expects the cloned repo (it shells out to `uv run pytest`). If you installed via `npm i -g`, the env/auth/RBAC checks still work; the pytest step will warn — that's expected for npm-only users.
+> Note: `doctor` invokes `scripts/doctor.sh` which is intended to run from a cloned repo (it `npm test`s the local source). If you installed via `npm i -g`, the env/auth/RBAC checks still work; the test step will warn — that's expected for npm-only users.
 
 ## Optional: shell alias for daily use
 
@@ -110,6 +112,7 @@ imsg --to "+15555550100" --body "hi"
 | `Unauthorized` / 401 on send | Missing/un-propagated Sender role | Re-check role assignment; wait 5min |
 | `config.json: No such file` | Skipped step 2 | Create `config.json` in cwd, or set `IMSG_CONFIG=/path/to/config.json` |
 | `command not found: imessage-bridge` | Not installed globally | Use `npx imessage-bridge@alpha …` or run `npm i -g imessage-bridge@alpha` |
+| Wrong Node version error | Node <22 | `nvm install 24 && nvm use 24` |
 
 Full operational issues: [`TROUBLESHOOTING.md`](../../TROUBLESHOOTING.md).
 
@@ -117,4 +120,4 @@ Full operational issues: [`TROUBLESHOOTING.md`](../../TROUBLESHOOTING.md).
 
 - ❌ Use Service Principal + client secret, SAS connection string, or PAT — identity-only ([`SECURITY.md`](../../SECURITY.md))
 - ❌ Commit `config.json` — it's gitignored for a reason
-- ❌ `pip install` / `python3 producer/cli.py` if you're hacking on Python — always use `uv` (see [`AGENTS.md`](../../AGENTS.md))
+- ❌ Pin yourself to Node 18 or 20 — use Active LTS (24) or Maintenance LTS (22 minimum)

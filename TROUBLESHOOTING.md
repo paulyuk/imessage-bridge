@@ -59,7 +59,7 @@ az login --tenant <correct-tenant-id>
 
 ### Messages stuck — keep getting redelivered
 
-The agent is calling `abandon_message` because `osascript` fails. See the macOS permissions section below. For the daemon, check `logs/agent.launchd.log` first; it captures stdout/stderr from before Python logging starts.
+The agent is calling `abandonMessage` because `osascript` fails. See the macOS permissions section below. For the daemon, check `logs/agent.launchd.log` first; it captures stdout/stderr from before the agent's structured logger initializes.
 
 ### Messages going to dead-letter queue
 
@@ -152,9 +152,8 @@ You can audit the permission in:
 
 This is the gotcha that bites everyone exactly once. macOS scopes the
 Automation grant to the **specific binary** that called `osascript`. If you
-swap the agent runtime — e.g. you used to run the Python agent under `uv`
-and now you're running the Node agent under `node` — **the new binary needs
-its own grant**.
+swap the agent runtime — e.g. you upgraded Node via nvm and the binary path
+changed — **the new binary needs its own grant**.
 
 Symptom: the daemon says `connected to service bus, listening...` and then
 goes silent. The first message it tries to deliver triggers a fresh macOS
@@ -173,9 +172,9 @@ npx imessage-bridge@alpha agent
 ./mac/launchd/install.sh
 ```
 
-You'll see entries for both binaries in **System Settings → Privacy &
-Security → Automation** (e.g. one for `node`, one for `uv`). Each one needs
-its own ✅ Messages checkbox.
+You'll see entries in **System Settings → Privacy & Security → Automation**
+for each binary that has called `osascript`. Each one needs its own ✅ Messages
+checkbox.
 
 ### Plist won't load — "Service is disabled"
 
@@ -195,47 +194,38 @@ Common causes:
   above, click **Allow**, then reinstall.
 - **`DefaultAzureCredential failed to retrieve a token`** — run `az login` from
   the same macOS user that owns the LaunchAgent.
-- **Daemon connects then goes silent** — see [Automation permission is per-binary](#automation-permission-is-per-binary) above. The most common cause when you've swapped from the Python agent to the Node agent.
+- **Daemon connects then goes silent** — see [Automation permission is per-binary](#automation-permission-is-per-binary) above. Most common cause is a fresh `node` binary (e.g. after nvm upgrade) that hasn't been granted Automation perm.
 
-### `node: command not found` (or `uv: command not found`) in launchd logs
+### `node: command not found` in launchd logs
 
 The installer pins the absolute path to `node` (`command -v node` at install
 time) into the plist, so this should not happen. If it does, you probably
 moved or reinstalled Node (or switched nvm versions). Just re-run
 `./mac/launchd/install.sh` to re-pin the current path.
 
-## uv / Python
+## Node / npm
 
-### `uv: command not found`
+### `node: command not found` after install
+
+You installed Node but your shell doesn't see it. Restart the shell (or `source ~/.zshrc`). If you used nvm, make sure the version is active: `nvm use 24`.
+
+### `npm error notarget No matching version found for imessage-bridge@alpha`
+
+npm cache lag — the alpha tag was just bumped. Force a fresh fetch:
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-# add to PATH:
-export PATH="$HOME/.local/bin:$PATH"
+npm cache clean --force
+npx -y imessage-bridge@alpha --version
 ```
 
-### `ModuleNotFoundError: No module named 'azure.servicebus'`
+### Wrong Node version error
 
-You ran the script with system `python3` instead of `uv run`. **Always use `uv run`.**
-
-```bash
-# wrong:
-python3 mac/agent.py
-# right:
-uv run mac/agent.py
-```
-
-If you really need a shell with deps activated:
-```bash
-uv venv
-source .venv/bin/activate
-```
-
-### Tests fail with import errors
+The package requires Node ≥22 (LTS). Check yours:
 
 ```bash
-uv sync --extra dev
-uv run pytest
+node --version
+# if <22:
+nvm install 24 && nvm use 24
 ```
 
 ## Logs
@@ -249,6 +239,6 @@ uv run pytest
 ## Still stuck?
 
 Open an issue on the upstream repo with:
-- `uv --version`, `az --version`, `sw_vers` (macOS version)
+- `node --version`, `npm --version`, `az --version`, `sw_vers` (macOS version)
 - Last 30 lines of agent log
 - Sanitized `config.json` (with FQDN/queue names, **never** post tokens)

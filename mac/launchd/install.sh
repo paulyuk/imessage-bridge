@@ -31,32 +31,26 @@ if [[ ! -f "${TEMPLATE}" ]]; then
   exit 1
 fi
 
-# --- Required: node ≥18 on PATH --------------------------------------------
+# --- Required: node ≥22 (Active LTS) on PATH ---------------------------------
 NODE_BIN="$(command -v node || true)"
 if [[ -z "${NODE_BIN}" ]]; then
-  echo "❌ node not found on PATH. Install Node ≥18:" >&2
+  echo "❌ node not found on PATH. Install Node ≥22 (Active LTS):" >&2
   echo "   brew install node            # macOS, Homebrew" >&2
   echo "   or:  https://nodejs.org/" >&2
   exit 1
 fi
 NODE_MAJOR="$("${NODE_BIN}" -e 'process.stdout.write(String(process.versions.node.split(".")[0]))')"
-if [[ "${NODE_MAJOR}" -lt 18 ]]; then
-  echo "❌ node version too old: $("${NODE_BIN}" --version) — require ≥18.0.0" >&2
+if [[ "${NODE_MAJOR}" -lt 22 ]]; then
+  echo "❌ node version too old: $("${NODE_BIN}" --version) — require ≥22 (Active LTS)" >&2
   exit 1
 fi
 
-# --- Required: bin/imessage-bridge.mjs (the agent entry point) -------------
-ENTRY="${REPO_ROOT}/bin/imessage-bridge.mjs"
+# --- Required: built CLI (dist/cli.js) ---------------------------------------
+ENTRY="${REPO_ROOT}/dist/cli.js"
 if [[ ! -f "${ENTRY}" ]]; then
-  echo "❌ ${ENTRY} not found. Run from a clone of the imessage-bridge repo." >&2
-  exit 1
-fi
-
-# --- Required: deps installed (node_modules present) ----------------------
-if [[ ! -d "${REPO_ROOT}/node_modules" ]]; then
-  echo "ℹ️  node_modules missing — running 'npm install --omit=dev' …" >&2
-  ( cd "${REPO_ROOT}" && npm install --omit=dev --silent ) || {
-    echo "❌ npm install failed. Try manually: cd ${REPO_ROOT} && npm install" >&2
+  echo "ℹ️  dist/cli.js missing — building TypeScript …" >&2
+  ( cd "${REPO_ROOT}" && npm install --silent && npm run build --silent ) || {
+    echo "❌ build failed. Try manually: cd ${REPO_ROOT} && npm install && npm run build" >&2
     exit 1
   }
 fi

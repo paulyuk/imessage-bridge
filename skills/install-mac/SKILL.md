@@ -18,9 +18,7 @@ license: MIT
 The Mac agent long-polls the AMQP queue and sends each message through `Messages.app` via `osascript`. Two ways to run it:
 
 1. **Foreground / quick** — `npx imessage-bridge@alpha agent` runs the receiver loop in the current terminal. Great for first-time Automation prompt + casual use. Combine with `tmux` / `screen` for a long-lived session without launchd.
-2. **Permanent macOS LaunchAgent** — clone the repo and run `mac/launchd/install.sh`. This auto-starts at login, auto-restarts on crash, throttled to one launch per minute, background priority.
-
-> 🛠 **Today the launchd installer wraps the original Python agent** (`uv run mac/agent.py`). The Node agent (`npx imessage-bridge@alpha agent`) is fully ported and tested with identical behavior; a Node-native launchd installer is the next milestone (v0.2.x). For now: launchd path = Python; npx path = Node. Same wire format, same config, same RBAC.
+2. **Permanent macOS LaunchAgent** — clone the repo and run `mac/launchd/install.sh`. This auto-starts at login, auto-restarts on crash, throttled to one launch per minute, background priority. Same Node binary as the npx path.
 
 ## When to use this skill
 
@@ -35,8 +33,7 @@ User says any of:
 |---|---|---|
 | macOS (any modern version, ≥10.10) | Runtime | n/a |
 | Messages.app signed into iMessage with the same Apple ID you'll use | The whole point | `Settings → Apple ID` |
-| Node.js ≥ 18 | Foreground `npx imessage-bridge@alpha agent` | https://nodejs.org/ or `brew install node` |
-| `uv` | Required only for the launchd installer (Python agent) | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| Node.js ≥ 22 LTS (recommend 24) | Runtime for both the npx and launchd paths | `nvm install 24 && nvm use 24` (or `brew install node`) |
 | `az` CLI | OAuth login + RBAC | https://learn.microsoft.com/cli/azure/install-azure-cli |
 | Azure subscription + Service Bus queue (provisioned once per project) | The broker | See [`infra/azure-quickstart.md`](../../infra/azure-quickstart.md) §1 |
 
@@ -80,17 +77,17 @@ tmux new -d -s imsg-bridge "IMSG_CONFIG=$IMSG_CONFIG npx imessage-bridge@alpha a
 tmux attach -t imsg-bridge   # detach with ctrl-b d
 ```
 
-### 5b. Permanent — install as a LaunchAgent (Python-backed today)
+### 5b. Permanent — install as a LaunchAgent
 
 ```bash
 # Clone the repo (needed for the installer + plist template)
 gh repo clone paulyuk/imessage-bridge && cd imessage-bridge
-uv sync
 cp config.example.json config.json   # or symlink your existing config
 $EDITOR config.json                  # set namespace_fqdn + queue
 
 ./mac/launchd/install.sh
-# The installer renders the plist template (com.imessage-bridge.agent.plist),
+# The installer detects node, runs `npm install --omit=dev` if needed,
+# builds the TypeScript to dist/cli.js, renders the plist template,
 # plutil-lints it, copies to ~/Library/LaunchAgents/, and registers via the
 # modern `launchctl bootstrap gui/$UID` API. Idempotent — safe to re-run
 # after `git pull`.
@@ -99,13 +96,10 @@ $EDITOR config.json                  # set namespace_fqdn + queue
 ## Verify it worked
 
 ```bash
-# npm path:
-npx imessage-bridge@alpha doctor
-
 # from the cloned repo:
-./bin/doctor.sh
+./scripts/doctor.sh
 # expected on a Mac:
-#   ✅ uv installed
+#   ✅ node ≥22 (Active LTS)
 #   ✅ config.json is valid JSON
 #   ✅ az is logged in
 #   ✅ have Azure Service Bus Data Receiver on imsg-queue
@@ -131,7 +125,7 @@ tail -F logs/agent.log
 
 # Force a restart (e.g. after `git pull`)
 launchctl kickstart -k gui/$(id -u)/com.imessage-bridge.agent
-# Or: ./mac/launchd/install.sh   # also re-renders the plist
+# Or: ./mac/launchd/install.sh   # also re-renders the plist + rebuilds TS
 
 # Stop and remove entirely
 ./mac/launchd/uninstall.sh
@@ -141,10 +135,10 @@ launchctl kickstart -k gui/$(id -u)/com.imessage-bridge.agent
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `Not authorized to send Apple events to Messages` in `logs/agent.launchd.log` | Skipped step 4 OR you swapped runtimes (e.g. uv → node) and macOS sees a different binary | Stop daemon → run `npx imessage-bridge@alpha agent` in a Terminal once → click **Allow** → re-run `./mac/launchd/install.sh`. See TROUBLESHOOTING.md *"Automation permission is per-binary"*. |
-| Daemon shows `state = running` and `connected to service bus, listening…` but no further log activity | First message after a runtime swap is hanging on the macOS Automation prompt that launchd can't show | Same fix as above — foreground run, click Allow, reinstall |
+| `Not authorized to send Apple events to Messages` in `logs/agent.launchd.log` | Skipped step 4, OR you swapped Node binaries (e.g. `nvm install 24` and macOS sees a different binary path) | Stop daemon → run `npx imessage-bridge@alpha agent` in a Terminal once → click **Allow** → re-run `./mac/launchd/install.sh`. See TROUBLESHOOTING.md *"Automation permission is per-binary"*. |
+| Daemon shows `state = running` and `connected to service bus, listening…` but no further log activity | First message after a Node binary swap is hanging on the macOS Automation prompt that launchd can't show | Same fix as above — foreground run, click Allow, reinstall |
 | `state = unknown` from `launchctl print` | Plist not bootstrapped | Re-run `./mac/launchd/install.sh` |
-| `Bootstrap failed: 5: Input/output error` | Plist file got removed before bootstrap (e.g. legacy migration script) | Re-run `./mac/launchd/install.sh` |
+| `Bootstrap failed: 5: Input/output error` | Plist file got removed before bootstrap | Re-run `./mac/launchd/install.sh` |
 | Daemon keeps restarting (with 60s gaps in log) | Throttled crash loop — config missing, expired `az` token, or import error | `tail -50 logs/agent.launchd.log` to see the actual error |
 | Agent log goes silent for hours | AMQP connection drift | The agent has built-in reconnect + backoff; if persistent, restart with `launchctl kickstart -k …` |
 

@@ -2,35 +2,31 @@
 
 This document is binding for ALL agents (human, bot, AI) working in this repo.
 
-## 🐍 Python: ALWAYS use `uv`
+## 🟦 Language: TypeScript on Node LTS
 
-We do not use `python3` or `pip` directly. Ever. We use [uv](https://github.com/astral-sh/uv).
-
-### Why
-- Faster, lockfile-driven, reproducible.
-- One tool for venvs, installs, runs, and locks.
-- Because we're rad.
+The project is **TypeScript** running on **Node.js ≥22 (Active LTS)**. Source lives in `src/`, tests are colocated as `*.test.ts`, build output goes to `dist/` (gitignored, included in the npm tarball at publish time).
 
 ### Rules
-1. **Never** call `python3 some_script.py` — call `uv run some_script.py`.
-2. **Never** call `pip install x` — call `uv pip install x` (or add to pyproject/requirements and `uv sync`).
-3. **Never** call `python3 -m venv` — call `uv venv`.
-4. **CI, launchd, scripts, docs, examples** — all must reference `uv`.
-5. If you find `python3` or `pip` invoked directly anywhere in this repo (code, docs, plists, workflows), open a fix immediately.
+1. **All new code is TypeScript** — no plain `.js` / `.mjs` outside the build output.
+2. **Strict mode on** (`tsconfig.json` ships with `strict: true`). Don't relax it; fix the type instead.
+3. **Run tests via tsx**, not via a compile-then-run dance: `npm test`.
+4. **Build before publish.** `prepublishOnly` runs `tsc`. The npm `bin` field points at `./dist/cli.js`.
+5. **Use ESM imports with `.js` extensions** (NodeNext convention) — `import { x } from "./foo.js"` even though the source file is `foo.ts`. TypeScript and Node both expect this.
 
 ### Cheat sheet
-| Task                    | Command                                     |
-|-------------------------|---------------------------------------------|
-| Create venv             | `uv venv`                                   |
-| Install requirements    | `uv pip install -r mac/requirements.txt`    |
-| Run a script            | `uv run mac/agent.py`                       |
-| Run tests               | `uv run pytest`                             |
-| Add a dep               | `uv add azure-servicebus`                   |
-| Sync from lockfile      | `uv sync`                                   |
+| Task                | Command                                     |
+|---------------------|---------------------------------------------|
+| Install deps        | `npm install`                               |
+| Run tests           | `npm test`                                  |
+| Build (TS → JS)     | `npm run build`                             |
+| Run the CLI locally | `npm run dev -- send --to "+15555550100" --body "hi"` |
+| Type-check only     | `npm run typecheck`                         |
+| Add a dep           | `npm install <pkg>`                         |
+| Add a dev dep       | `npm install --save-dev <pkg>`              |
 
 ## 🔐 Auth: identity-only (binding rule)
 
-This project uses **Azure AD identities only** for all Azure access.
+This project uses **Microsoft Entra (Azure AD) identities only** for all Azure access.
 
 **Never:**
 - Service Principals (with secret OR cert)
@@ -39,7 +35,7 @@ This project uses **Azure AD identities only** for all Azure access.
 - `AZURE_CLIENT_SECRET` or any long-lived credential in env vars / files / GitHub Secrets
 
 **Only:**
-- `az login` (Azure AD user identity) — the default everywhere
+- `az login` (Entra user identity) — the default everywhere
 - Managed Identity (workloads in Azure)
 - Workload Identity Federation (external workloads)
 - Azure Arc + managed identity
@@ -59,7 +55,7 @@ Full rationale: [`SECURITY.md`](./SECURITY.md).
 
 - This repo hooks into the Brady Gaster Squad (`.squad/`).
 - DevRel agent owns README, CONTRIBUTING, INSTALL, TROUBLESHOOTING.
-- All PRs trigger squad validation + Signal notification (via `SQUAD_SIGNAL_HOOK` secret).
+- Squad validation runs on every PR.
 
 ## 🌳 Branches
 

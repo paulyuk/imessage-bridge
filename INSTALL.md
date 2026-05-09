@@ -2,10 +2,10 @@
 
 End-to-end install for both producer (anywhere) and Mac agent. Assumes you've completed the [Azure quickstart](./infra/azure-quickstart.md) and have `az login` working.
 
-## TL;DR — npm path (recommended for end users)
+## TL;DR — npm path
 
 ```bash
-# one-liner — no clone, no virtualenv, just Node 18+:
+# one-liner — no clone, no install step:
 npx imessage-bridge@alpha send --to "+15555550100" --body "smoke test"
 ```
 
@@ -17,10 +17,11 @@ Want it permanently on `PATH`? `npm i -g imessage-bridge@alpha`, then drop the `
 
 | Tool          | Why                                  | Install                                                              |
 |---------------|--------------------------------------|----------------------------------------------------------------------|
-| Node.js ≥ 18  | Runtime for the published CLI        | https://nodejs.org/ (or `brew install node`, `nvm install 20`, …)    |
+| Node.js ≥ 22 (LTS, recommend 24) | Runtime for the CLI and the daemon | `nvm install 24 && nvm use 24` (or `brew install node`, or https://nodejs.org/) |
 | `az` CLI      | Azure provisioning + OAuth login     | https://learn.microsoft.com/cli/azure/install-azure-cli              |
-| `gh` CLI      | Optional — only needed if you clone the repo (contributors / launchd installer) | https://cli.github.com/ |
-| `uv`          | Optional — only needed for repo contributors (Python parts) | `curl -LsSf https://astral.sh/uv/install.sh \| sh`           |
+| `gh` CLI      | Optional — only needed if you clone the repo (launchd installer / contributing) | https://cli.github.com/ |
+
+> Node 22 (Jod) is the minimum because the project depends on the Node 22 native test runner + `parseArgs`. Node 24 (Krypton) is the current Active LTS — recommended for new installs.
 
 ## 1. Clone (optional)
 
@@ -28,13 +29,11 @@ If you only want to send messages, **skip this** — `npx imessage-bridge@alpha`
 
 - Use the `mac/launchd/` installer to run the agent as a permanent macOS daemon
 - Contribute to the repo
-- Run the Python test suite
 
 ```bash
 gh repo clone paulyuk/imessage-bridge
 cd imessage-bridge
-uv sync                  # installs Python deps for contributors
-uv sync --extra dev      # add this if you want to run tests
+npm install              # installs Node deps; needed for `mac/launchd/install.sh` and `npm test`
 ```
 
 ## 2. Configure
@@ -45,7 +44,8 @@ Drop a `config.json` next to wherever you'll run the CLI:
 cat > config.json <<'JSON'
 {
   "namespace_fqdn": "<your-namespace>.servicebus.windows.net",
-  "queue": "imsg-queue"
+  "queue": "imsg-queue",
+  "signature": "🐩"
 }
 JSON
 ```
@@ -65,7 +65,6 @@ az login --use-device-code
 ## 4. Smoke test
 
 ```bash
-# verify auth + role assignment works:
 npx imessage-bridge@alpha send --to "+15555550100" --body "smoke test"
 # expect: enqueued <uuid> -> +15555550100
 ```
@@ -94,23 +93,17 @@ The first successful send should trigger a macOS **Automation** prompt. Click
 
 ### 5.2 Install the LaunchAgent
 
-> 🛠 **Note — current installer wraps the Python agent.** The launchd installer below renders a plist that runs `uv run mac/agent.py`. The Node agent (`npx imessage-bridge@alpha agent`) works identically and is fully tested; a Node-native launchd installer is the next milestone (v0.2.x). For now, the launchd path requires the cloned repo + `uv`. If you'd rather skip launchd entirely, run `npx imessage-bridge@alpha agent` inside `tmux` / `screen`.
-
 ```bash
 # from the cloned repo:
 ./mac/launchd/install.sh
 ```
 
-The installer is safe to re-run after `git pull`. It detects `uv`, `$HOME`, and
-the repo root; renders `mac/launchd/com.imessage-bridge.agent.plist` with absolute
-paths; validates the rendered plist with `plutil -lint`; copies it to
-`~/Library/LaunchAgents/com.imessage-bridge.agent.plist`; then uses the modern
-`launchctl bootstrap gui/$UID` API and `kickstart`s the agent immediately.
+The installer is idempotent — safe to re-run after `git pull`. It detects `node`, `$HOME`, and the repo root; runs `npm install --omit=dev` if `node_modules` is missing; builds the TypeScript to `dist/cli.js`; renders `mac/launchd/com.imessage-bridge.agent.plist` with absolute paths; validates with `plutil -lint`; copies to `~/Library/LaunchAgents/`; and uses the modern `launchctl bootstrap gui/$UID` API to register and `kickstart` the agent.
 
 ```mermaid
 flowchart LR
-    L[launchd<br/>KeepAlive] --> U[uv run]
-    U --> A[mac/agent.py]
+    L[launchd<br/>KeepAlive] --> N[node]
+    N --> A[dist/cli.js agent]
     A --> M[Messages.app]
 ```
 
@@ -118,7 +111,7 @@ The plist sets:
 - `KeepAlive=true` — restart the agent if it exits.
 - `ThrottleInterval=60` — avoid CPU-burning crash loops.
 - `ProcessType=Background` — keep it low priority.
-- `HOME` + `PATH` — let `uv` find caches and `~/.azure` tokens without a wrapper script.
+- `HOME` + `PATH` — let the agent find `~/.azure` token cache and `az` on PATH without a wrapper script.
 
 ### 5.3 Verify it is running
 
@@ -158,16 +151,15 @@ launchd cannot display that prompt. If you skip the foreground run, the daemon c
 
 You can audit this in:
 
-> System Settings → Privacy & Security → Automation → (Terminal / uv / launchd) → ✅ Messages
+> System Settings → Privacy & Security → Automation → (Terminal / node / launchd) → ✅ Messages
 
 ## 7. Run tests (contributors only)
 
 ```bash
 npm test            # Node tests (16 cases, mocked)
-uv run pytest       # Python tests (mocked Service Bus + osascript)
 ```
 
-Both run fully offline — no Azure or Mac required.
+Runs fully offline — no Azure or Mac required.
 
 ## Upgrade / update
 
@@ -177,9 +169,9 @@ End users:
 npx imessage-bridge@alpha --version
 ```
 
-Contributors / launchd users:
+Cloned repo / launchd users:
 ```bash
 git pull
-uv sync                           # picks up new Python deps
-./mac/launchd/install.sh          # re-render plist + restart agent (idempotent)
+npm install                       # picks up new Node deps
+./mac/launchd/install.sh          # re-render plist + rebuild + restart agent (idempotent)
 ```

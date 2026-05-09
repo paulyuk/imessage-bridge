@@ -41,9 +41,9 @@ iMessage is a walled garden. If you want to send an iMessage programmatically, y
 npx imessage-bridge@alpha send --to "+15555550100" --body "hi from the bridge 🐩"
 ```
 
-That's it. No clone, no `uv sync`, no virtualenv. Just `npx`. (The `@alpha` tag is pinned through the v0.2 prerelease — once we ship stable, drop the `@alpha`.)
+That's it. `npx` fetches the package on demand and runs it — nothing to install, nothing to clean up. (The `@alpha` tag is pinned through the v0.2 prerelease — once we ship stable, drop the `@alpha`.)
 
-You'll need: [Node.js 18+](https://nodejs.org/), an [Azure subscription](https://azure.microsoft.com/en-us/free) (free tier is fine), the [`az` CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), and a Mac signed into iMessage somewhere on your network.
+You'll need: [Node.js 22+ LTS](https://nodejs.org/) (recommend `nvm install 24`), an [Azure subscription](https://azure.microsoft.com/en-us/free) (free tier is fine), the [`az` CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), and a Mac signed into iMessage. The Mac can be **anywhere with internet access** (it makes outbound calls to the broker — no inbound exposure needed). Or if your producer is on the same private network, you can swap Service Bus for a local broker (Redis + the Dapr extension, RabbitMQ, ActiveMQ Artemis, …) — see [Standards & portability](#-standards--portability).
 
 ### Two ways to drive this
 
@@ -181,16 +181,13 @@ For the persistent LaunchAgent installer, clone the repo (it ships the plist tem
 
 ```bash
 gh repo clone paulyuk/imessage-bridge && cd imessage-bridge
-uv sync                       # contributors only — see Python tooling section
-./mac/launchd/install.sh      # render plist, register with launchd, start now
+./mac/launchd/install.sh      # detects node, installs deps, renders plist, registers with launchd, starts now
 ```
 
 ```bash
 launchctl print gui/$(id -u)/com.imessage-bridge.agent | head -20 # status
 tail -F logs/agent.log                                          # follow app logs
 ```
-
-> 🛠 **Heads up — Node daemon installer is a v0.2.x follow-up.** Today the launchd installer wraps the original Python agent (`uv run mac/agent.py`); the Node agent runs identically and is fully tested, but its launchd installer ships next. If you don't want to install `uv`, just run `npx imessage-bridge@alpha agent` in a long-lived `tmux` / `screen` session for now.
 
 The installer is idempotent, so re-run it after `git pull` to pick up
 new code. Full daemon setup and common commands: [INSTALL.md](./INSTALL.md#5-start-the-mac-agent).
@@ -285,23 +282,6 @@ For full broker portability *without* swapping client libraries, run the produce
 
 > **TL;DR:** This isn't an Azure-only toy. Azure Service Bus is the default because it's the cheapest AMQP-with-AAD-OAuth broker on the market for low volumes (~$0/month at our scale). Everything else is standards.
 
-## 🐍 For contributors — Python tooling uses `uv`
-
-End users don't need any of this — `npx imessage-bridge@alpha` is the supported install path.
-
-If you're hacking on the repo itself (the original Python agent + producer + tests are preserved as a contributor reference), this project standardizes on **[uv](https://github.com/astral-sh/uv)** for the Python parts. Faster, lockfile-driven, reproducible. We do not invoke `python3` or `pip` directly. Because we're rad.
-
-| Task               | ❌ Don't                       | ✅ Do                            |
-|--------------------|--------------------------------|----------------------------------|
-| Run a script       | `python3 mac/agent.py`         | `uv run mac/agent.py`            |
-| Install deps       | `pip install -r req.txt`       | `uv pip install -r req.txt`      |
-| New venv           | `python3 -m venv .venv`        | `uv venv`                        |
-| Sync from lock     | —                              | `uv sync`                        |
-| Add a dep          | `pip install azure-servicebus` | `uv add azure-servicebus`        |
-| Run tests          | `pytest`                       | `uv run pytest`                  |
-
-If you find a stray `python3` or `pip` invocation anywhere — code, docs, plists, CI — please open a fix. See [`AGENTS.md`](./AGENTS.md) for the full agent contract.
-
 ## 🔐 Security
 
 **Auth model: identity-only.** No long-lived secrets, anywhere, ever.
@@ -338,18 +318,24 @@ imessage-bridge/
 │       └── uninstall.sh                   # bootout + remove
 ├── infra/
 │   └── azure-quickstart.md  # az cli provisioning
+├── extensions/              # opt-in sibling packages — see extensions/README.md
+│   └── dapr/                # Dapr pubsub variant (Redis / Service Bus / Kafka / …)
 ├── .squad/                  # Brady Gaster Squad config
 ├── AGENTS.md                # binding rules for human + bot agents
 ├── README.md                # you are here
 └── config.example.json
 ```
 
+> **Want a different broker?** [`extensions/dapr/`](./extensions/dapr/) ships
+> a Dapr-pubsub variant that runs over Redis / Azure Service Bus / Kafka /
+> RabbitMQ / AWS SNS+SQS / GCP Pub/Sub via a config swap. Source-only for
+> v0.2.x — clone the repo and follow [`extensions/dapr/README.md`](./extensions/dapr/README.md).
+
 ## 🤝 Contributing
 
 PRs welcome. This repo runs the [Brady Gaster Squad](https://github.com/bradygaster/squad) — every PR triggers squad validation (PII flag + schema check).
 
 - Default branch: `main`. Never `master`.
-- All Python invocations use `uv` (see [`AGENTS.md`](./AGENTS.md)).
 - DevRel agent owns this README. Improvements to docs are extra-welcome.
 - Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the PR flow.
 

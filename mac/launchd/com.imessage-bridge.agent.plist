@@ -23,7 +23,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>__NODE__</string>
-    <string>__REPO__/bin/imessage-bridge.mjs</string>
+    <string>__REPO__/dist/cli.js</string>
     <string>agent</string>
   </array>
 
