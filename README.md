@@ -6,10 +6,11 @@
 
 A small, opinionated bridge that lets an inexpensive Linux/cloud "producer" (or your favorite [openclaw](https://github.com/openclaw/openclaw) 🦞) enqueue messages securely and async over **AMQP 1.0** into a managed broker, and a tiny agent on your Mac pulls them out and sends them through `Messages.app`. No inbound ports to attack. No SAS keys. No PATs.
 
-[![openclaw skill](https://img.shields.io/badge/🦞-openclaw--style_claw-c1473a)](https://github.com/openclaw/openclaw)
+[![🦞 openclaw skill](https://img.shields.io/badge/🦞-openclaw--style_claw-c1473a)](https://github.com/openclaw/openclaw)
 [![AMQP 1.0](https://img.shields.io/badge/wire-AMQP%201.0-0b6e3b)](https://www.amqp.org/)
 [![Dapr-friendly](https://img.shields.io/badge/swap--in-Dapr%20pubsub-008ce5)](https://docs.dapr.io/reference/components-reference/supported-pubsub/)
 [![OAuth only](https://img.shields.io/badge/auth-OAuth%20%2F%20Entra-ff6f00)](./SECURITY.md)
+[![Brady Gaster Squad](https://img.shields.io/badge/squad-brady%20gaster-blueviolet)](https://github.com/bradygaster/squad)
 [![Built with uv](https://img.shields.io/badge/python-uv-de5fe9)](https://github.com/astral-sh/uv)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 [![~250 LOC](https://img.shields.io/badge/code-~250%20LOC-lightgrey)](./producer/cli.py)
@@ -33,96 +34,9 @@ iMessage is a walled garden. If you want to send an iMessage programmatically, y
 - **Built in the [openclaw](https://github.com/openclaw/openclaw) 🦞 spirit** — own your data, own your infra, ship one more "claw" into a walled-garden ecosystem so your agents can act on your behalf. Each [`skills/`](./skills/) entry follows the openclaw skill format so this folder drops cleanly into any openclaw-style runtime (or any other agent framework that consumes `SKILL.md`).
 - **Tiny surface area** — ~100 lines of producer + ~150 lines of agent. Easy to read, easy to fork, easy to trust.
 
-## 🏗 Architecture
-
-```mermaid
-flowchart LR
-    subgraph anywhere["💻 Anywhere — Linux / cloud / your bot"]
-        P["Producer<br/><code>uv run producer/cli.py</code>"]
-    end
-
-    subgraph azure["☁️ Cloud — managed AMQP 1.0 broker (Azure Service Bus)"]
-        AAD[("🔐 Azure AD")]
-        SB["Service Bus Queue<br/><b>imsg-queue</b><br/><sub>AMQP 1.0 over TLS</sub>"]
-    end
-
-    subgraph mac["🖥️ Your Mac — signed into iMessage"]
-        A["Agent<br/><code>uv run mac/agent.py</code>"]
-        M["Messages.app"]
-    end
-
-    iMsg(["💬 iMessage recipient"])
-
-    P -- "OAuth token" --> AAD
-    A -- "OAuth token" --> AAD
-    P == "send (AMQP 1.0) — Data Sender role" ==> SB
-    SB == "long-poll receive (AMQP 1.0) — Data Receiver role" ==> A
-    A -- "osascript" --> M
-    M -. "send" .-> iMsg
-
-    classDef az fill:#0078d4,stroke:#005a9e,color:#fff
-    classDef host fill:#f4f4f5,stroke:#a1a1aa,color:#18181b
-    classDef ext fill:#fff,stroke:#10b981,color:#065f46
-    class SB,AAD az
-    class P,A,M host
-    class iMsg ext
-```
-
-- **Producer** authenticates with `DefaultAzureCredential` and has **only** the `Azure Service Bus Data Sender` role on the queue.
-- **Mac agent** authenticates the same way and has **only** the `Azure Service Bus Data Receiver` role.
-- **Two distinct Azure AD identities**, one role each — least privilege, no shared secrets, no Service Principals.
-- **The Mac only makes outbound calls** — no inbound ports, no tunnels, no exposed surface.
-- **Service Bus tier: Basic.** ~$0/month at our volume (no base fee, ~$0.05/M ops).
-
-### Message lifecycle
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant P as Producer
-    participant SB as Service Bus
-    participant A as Mac Agent
-    participant M as Messages.app
-    participant R as Recipient
-
-    P->>SB: send(payload, message_id)
-    Note over SB: durable, retry-friendly
-    A->>SB: receive (long-poll)
-    SB-->>A: message (peek-lock)
-    A->>M: osascript "send"
-    alt success
-        M-->>R: iMessage delivered
-        A->>SB: complete(message)
-    else osascript fails
-        A->>SB: abandon(message) — retry
-    else bad payload
-        A->>SB: dead_letter(message)
-    end
-```
-
-## 📐 Standards & portability
-
-This project is built on **standards**, not vendor primitives. The default deployment uses Azure Service Bus because it's a cheap, managed AMQP broker with first-class Azure AD auth — but the wire format and patterns are portable.
-
-| Layer | Standard / Spec | Why it matters |
-|---|---|---|
-| **Wire protocol** | [AMQP 1.0](https://www.amqp.org/) (OASIS, [ISO/IEC 19464](https://www.iso.org/standard/64955.html)) | Same protocol RabbitMQ, ActiveMQ Artemis, Solace, IBM MQ, AWS MQ, and Azure Service Bus all speak. Your queue is just a queue. |
-| **Auth** | [OAuth 2.0](https://oauth.net/2/) + [OpenID Connect](https://openid.net/connect/) (Microsoft Entra as the IdP) | No SAS keys, no PATs, no client secrets. Token-based, instantly revocable. |
-| **Phone format** | [E.164](https://en.wikipedia.org/wiki/E.164) | The same format Twilio, Telegram, WhatsApp, and SMS gateways all expect. |
-| **Message shape** | JSON, AMQP `message_id` for idempotency | Trivial to interop with anything. |
-| **Skill format** | [`SKILL.md`](./skills/README.md) frontmatter + sections, as used by [openclaw](https://github.com/openclaw/openclaw) 🦞 | The whole [`skills/`](./skills/) folder drops cleanly into any openclaw runtime — install-mac, install-producer, send-message, doctor, logs are all reusable claws. |
-
-### Swap the broker
-
-The default flow uses `azure-servicebus` (an AMQP 1.0 client). To run against a **different AMQP 1.0 broker** (e.g. RabbitMQ, ActiveMQ Artemis, Apache Qpid), swap the client library — the producer/consumer logic stays the same. Roughly ~30 lines change, mostly imports and connection setup.
-
-### Or use Dapr
-
-For full broker portability *without* swapping client libraries, run the producer behind a [Dapr](https://dapr.io/) sidecar and use the [pubsub building block](https://docs.dapr.io/developing-applications/building-blocks/pubsub/pubsub-overview/). Dapr ships [pluggable pubsub components](https://docs.dapr.io/reference/components-reference/supported-pubsub/) for Service Bus, RabbitMQ, Kafka, NATS, Redis, AWS SNS/SQS, GCP Pub/Sub, and ~15 others — same producer code, change one config file to switch broker. A `examples/dapr/` reference implementation is on the roadmap.
-
-> **TL;DR:** This isn't an Azure-only toy. Azure Service Bus is the default because it's the cheapest AMQP-with-AAD-OAuth broker on the market for low volumes (~$0/month at our scale). Everything else is standards.
-
 ## ⚡ Quick start
+
+> **The shortest path to a delivered iMessage:** clone, configure, run two commands, see your phone light up. ~5 minutes from cold start.
 
 You'll need: an [Azure subscription](https://azure.microsoft.com/en-us/free) (the free tier is fine), the [`az` CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), [`uv`](https://github.com/astral-sh/uv), and a Mac signed into iMessage.
 
@@ -132,7 +46,7 @@ This repo ships both a **terminal CLI** and a set of **operational skills** unde
 
 | Goal | 🖥️ Terminal | 💬 Or just say to your agent |
 |---|---|---|
-| Install on a Linux/cloud/openclaw producer | follow [steps 1–5 below](#1-provision-azure-2-minutes) | *"install the imessage-bridge producer on this box"* → [`install-producer`](./skills/install-producer/SKILL.md) |
+| Install on a Linux/cloud/openclaw producer | follow [steps 1–5 below](#1-provision-the-queue-2-minutes) | *"install the imessage-bridge producer on this box"* → [`install-producer`](./skills/install-producer/SKILL.md) |
 | Install on the receiving Mac (as a daemon) | follow [steps 1–4, then step 6](#6-make-the-mac-agent-permanent) | *"install imessage-bridge on this Mac as a daemon"* → [`install-mac`](./skills/install-mac/SKILL.md) |
 | Send a message | `uv run producer/cli.py --to "+15555550100" --body "hi"` | *"send 'hi' to +15555550100 via the bridge"* → [`send-message`](./skills/send-message/SKILL.md) |
 | Health check | `./bin/doctor.sh` | *"is the imessage-bridge healthy?"* / *"doctor"* → [`doctor`](./skills/doctor/SKILL.md) |
@@ -142,7 +56,9 @@ This repo ships both a **terminal CLI** and a set of **operational skills** unde
 
 The rest of this section is the **terminal walkthrough** for first-time setup. Once installed, you can drive everything from prompts above.
 
-### 1. Provision Azure (~2 minutes)
+### 1. Provision the queue (~2 minutes)
+
+The bridge runs on **any AMQP 1.0 broker**; **Azure Service Bus** is the immediate default implementation because it's the cheapest managed AMQP-with-OAuth/Entra option (~$0/month at our volume) and zero ops. To use a different broker (RabbitMQ, ActiveMQ Artemis, Solace, …), see [Standards & portability](#-standards--portability) below — the producer/agent stay the same.
 
 ```bash
 RG=imessage-bridge
@@ -289,6 +205,95 @@ That's it. The installer is idempotent, so re-run it after `git pull` to pick up
 new code. Full daemon setup and common commands: [INSTALL.md](./INSTALL.md#5-start-the-mac-agent).
 Troubleshooting starts with the two log files: [TROUBLESHOOTING.md](./TROUBLESHOOTING.md#launchd).
 
+## 🏗 Architecture
+
+```mermaid
+flowchart LR
+    subgraph anywhere["💻 Anywhere — Linux / cloud / your bot"]
+        P["Producer<br/><code>uv run producer/cli.py</code>"]
+    end
+
+    subgraph azure["☁️ Cloud — managed AMQP 1.0 broker (Azure Service Bus)"]
+        AAD[("🔐 Azure AD")]
+        SB["Service Bus Queue<br/><b>imsg-queue</b><br/><sub>AMQP 1.0 over TLS</sub>"]
+    end
+
+    subgraph mac["🖥️ Your Mac — signed into iMessage"]
+        A["Agent<br/><code>uv run mac/agent.py</code>"]
+        M["Messages.app"]
+    end
+
+    iMsg(["💬 iMessage recipient"])
+
+    P -- "OAuth token" --> AAD
+    A -- "OAuth token" --> AAD
+    P == "send (AMQP 1.0) — Data Sender role" ==> SB
+    SB == "long-poll receive (AMQP 1.0) — Data Receiver role" ==> A
+    A -- "osascript" --> M
+    M -. "send" .-> iMsg
+
+    classDef az fill:#0078d4,stroke:#005a9e,color:#fff
+    classDef host fill:#f4f4f5,stroke:#a1a1aa,color:#18181b
+    classDef ext fill:#fff,stroke:#10b981,color:#065f46
+    class SB,AAD az
+    class P,A,M host
+    class iMsg ext
+```
+
+- **Producer** authenticates with `DefaultAzureCredential` and has **only** the `Azure Service Bus Data Sender` role on the queue.
+- **Mac agent** authenticates the same way and has **only** the `Azure Service Bus Data Receiver` role.
+- **Two distinct Azure AD identities**, one role each — least privilege, no shared secrets, no Service Principals.
+- **The Mac only makes outbound calls** — no inbound ports, no tunnels, no exposed surface.
+- **Service Bus tier: Basic.** ~$0/month at our volume (no base fee, ~$0.05/M ops).
+
+### Message lifecycle
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as Producer
+    participant SB as Service Bus
+    participant A as Mac Agent
+    participant M as Messages.app
+    participant R as Recipient
+
+    P->>SB: send(payload, message_id)
+    Note over SB: durable, retry-friendly
+    A->>SB: receive (long-poll)
+    SB-->>A: message (peek-lock)
+    A->>M: osascript "send"
+    alt success
+        M-->>R: iMessage delivered
+        A->>SB: complete(message)
+    else osascript fails
+        A->>SB: abandon(message) — retry
+    else bad payload
+        A->>SB: dead_letter(message)
+    end
+```
+
+## 📐 Standards & portability
+
+This project is built on **standards**, not vendor primitives. The default deployment uses Azure Service Bus because it's a cheap, managed AMQP broker with first-class Azure AD auth — but the wire format and patterns are portable.
+
+| Layer | Standard / Spec | Why it matters |
+|---|---|---|
+| **Wire protocol** | [AMQP 1.0](https://www.amqp.org/) (OASIS, [ISO/IEC 19464](https://www.iso.org/standard/64955.html)) | Same protocol RabbitMQ, ActiveMQ Artemis, Solace, IBM MQ, AWS MQ, and Azure Service Bus all speak. Your queue is just a queue. |
+| **Auth** | [OAuth 2.0](https://oauth.net/2/) + [OpenID Connect](https://openid.net/connect/) (Microsoft Entra as the IdP) | No SAS keys, no PATs, no client secrets. Token-based, instantly revocable. |
+| **Phone format** | [E.164](https://en.wikipedia.org/wiki/E.164) | The same format Twilio, Telegram, WhatsApp, and SMS gateways all expect. |
+| **Message shape** | JSON, AMQP `message_id` for idempotency | Trivial to interop with anything. |
+| **Skill format** | [`SKILL.md`](./skills/README.md) frontmatter + sections, as used by [openclaw](https://github.com/openclaw/openclaw) 🦞 | The whole [`skills/`](./skills/) folder drops cleanly into any openclaw runtime — install-mac, install-producer, send-message, doctor, logs are all reusable claws. |
+
+### Swap the broker
+
+The default flow uses `azure-servicebus` (an AMQP 1.0 client). To run against a **different AMQP 1.0 broker** (e.g. RabbitMQ, ActiveMQ Artemis, Apache Qpid), swap the client library — the producer/consumer logic stays the same. Roughly ~30 lines change, mostly imports and connection setup.
+
+### Or use Dapr
+
+For full broker portability *without* swapping client libraries, run the producer behind a [Dapr](https://dapr.io/) sidecar and use the [pubsub building block](https://docs.dapr.io/developing-applications/building-blocks/pubsub/pubsub-overview/). Dapr ships [pluggable pubsub components](https://docs.dapr.io/reference/components-reference/supported-pubsub/) for Service Bus, RabbitMQ, Kafka, NATS, Redis, AWS SNS/SQS, GCP Pub/Sub, and ~15 others — same producer code, change one config file to switch broker. A `examples/dapr/` reference implementation is on the roadmap.
+
+> **TL;DR:** This isn't an Azure-only toy. Azure Service Bus is the default because it's the cheapest AMQP-with-AAD-OAuth broker on the market for low volumes (~$0/month at our scale). Everything else is standards.
+
 ## 🐍 Python tooling — we use `uv`
 
 This project standardizes on **[uv](https://github.com/astral-sh/uv)** for everything Python. Faster, lockfile-driven, reproducible. We do not invoke `python3` or `pip` directly. Because we're rad.
@@ -362,7 +367,7 @@ MIT — see [`LICENSE`](./LICENSE).
 ---
 
 <div align="center">
-<sub>Built with 🐩 by the Brady Gaster Squad. DevRel-approved.</sub>
+<sub>Built with 🐩 by the <a href="https://github.com/bradygaster/squad">Brady Gaster Squad</a>.</sub>
 </div>
 
-🐉
+🐉 ABB
