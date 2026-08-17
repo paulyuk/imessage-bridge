@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-08-17 — Signal Producer Routing
+
+### What Happened
+
+The producer-side `signal-send` path is being added to route Signal payloads to
+the independent `signal_queue`.
+
+### Steering Moment
+
+The producer is deliberately kept separate from the receiving Signal agent:
+it needs Entra RBAC only, with **Sender** access on `signal-queue`. It does
+not need `signal-cli` or `signal_account`; those remain receiver-side concerns.
+
+### Impact
+
+Queue-scoped permissions stay least-privilege, and producer deployment does
+not acquire Signal-device dependencies.
+
+---
+
 ## 2026-08-17 — Deploy Runbook + Signal Sibling Consumer
 
 ### What Happened

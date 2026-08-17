@@ -52,6 +52,7 @@ This project ships both a **terminal CLI** (via npm) and a set of **operational 
 | Goal | 🖥️ Terminal | 💬 Or just say to your agent |
 |---|---|---|
 | Send a message | `npx imessage-bridge@alpha send --to "+15555550100" --body "hi"` | *"send 'hi' to +15555550100 via the bridge"* → [`send-message`](./skills/send-message/SKILL.md) |
+| Send a Signal message | `npx imessage-bridge@alpha signal-send --to "+15555550100" --body "hi"` | *"send 'hi' to +15555550100 via Signal"* |
 | Run the Mac receiver (foreground) | `npx imessage-bridge@alpha agent` | *"run the imessage-bridge receiver"* |
 | Install on a Linux/cloud/openclaw producer | `npm i -g imessage-bridge@alpha` (or just `npx`) | *"install the imessage-bridge producer on this box"* → [`install-producer`](./skills/install-producer/SKILL.md) |
 | Install on the receiving Mac (as a daemon) | follow [step 6 below](#6-make-the-mac-agent-permanent) | *"install imessage-bridge on this Mac as a daemon"* → [`install-mac`](./skills/install-mac/SKILL.md) |
@@ -171,6 +172,30 @@ npx imessage-bridge@alpha agent
 ```
 
 The Mac picks it up within a few seconds and `Messages.app` sends it. ✨
+
+### Signal producer
+
+Add `signal_queue` to the same producer configuration:
+
+```json
+{
+  "namespace_fqdn": "your-namespace.servicebus.windows.net",
+  "queue": "imsg-queue",
+  "signal_queue": "signal-queue"
+}
+```
+
+Then enqueue through the independent Signal queue:
+
+```bash
+npx imessage-bridge@alpha signal-send --to "+14255551234" --body "Signal smoke test"
+```
+
+The producer needs **Azure Service Bus Data Sender** scoped to `signal-queue`.
+`signal-send` does not require a Signal account or `signal-cli`; those are only
+needed by the receiving Signal consumer. To configure that receiver, including
+its Signal account, `signal-cli`, and **Azure Service Bus Data Receiver** role,
+follow the [Mac deployment guide](./DEPLOY-MAC-MINI.md).
 
 ### 6. Make the Mac agent permanent
 

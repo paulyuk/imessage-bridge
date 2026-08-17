@@ -1,6 +1,8 @@
 {
   "namespace_fqdn": "REPLACE-ME.servicebus.windows.net",
   "queue": "imsg-queue",
+  "signal_queue": "signal-queue",
+  "signal_account": "+15555550100",
   "model": "gpt-5.4-mini",
   "model_version": "latest",
   "poll_interval_s": 3,

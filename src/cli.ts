@@ -3,7 +3,7 @@
  * imessage-bridge CLI dispatcher.
  *
  * Subcommands:
- *   send  --to <e164> --body <text> [--config <path>]
+ *   send | signal-send  --to <e164> --body <text> [--config <path>]
  *   agent [--config <path>]
  *   help | --help | -h
  *   version | --version | -v
@@ -67,7 +67,8 @@ function printHelp(): void {
       "imessage-bridge — send iMessages from anywhere via an Azure Service Bus queue.",
       "",
       "Usage:",
-      "  imessage-bridge send  --to <+E164> --body <text> [--config <path>]",
+      "  imessage-bridge send         --to <+E164> --body <text> [--config <path>]",
+      "  imessage-bridge signal-send  --to <+E164> --body <text> [--config <path>]",
       "  imessage-bridge agent [--config <path>]",
       "  imessage-bridge signal-agent [--config <path>]",
       "  imessage-bridge help | --help | -h",
@@ -78,6 +79,7 @@ function printHelp(): void {
       "",
       "Examples:",
       "  imessage-bridge send --to +14255551234 --body 'hello from anywhere'",
+      "  imessage-bridge signal-send --to +14255551234 --body 'hello via Signal'",
       "  imessage-bridge agent",
       "  imessage-bridge signal-agent   # requires config.signal_queue + config.signal_account",
       "",
@@ -111,6 +113,30 @@ async function main(argv: string[]): Promise<number> {
     }
     const id = await sendMessage({ config, to: flags.to, body: flags.body });
     process.stdout.write(`enqueued ${id} -> ${flags.to}\n`);
+    return 0;
+  }
+
+  if (cmd === "signal-send") {
+    if (!config.signal_queue) {
+      process.stderr.write(
+        "error: config.signal_queue is required for signal-send (e.g. \"signal-queue\")\n" +
+          "  fix: add \"signal_queue\" to config.json\n",
+      );
+      return 2;
+    }
+    if (!flags.to || !flags.body) {
+      process.stderr.write(
+        "error: signal-send requires --to <+E164> and --body <text>\n" +
+          "  example: imessage-bridge signal-send --to +14255551234 --body 'hi'\n",
+      );
+      return 2;
+    }
+    const id = await sendMessage({
+      config: { ...config, queue: config.signal_queue },
+      to: flags.to,
+      body: flags.body,
+    });
+    process.stdout.write(`enqueued ${id} -> ${flags.to} (signal)\n`);
     return 0;
   }
 
