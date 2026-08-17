@@ -72,6 +72,78 @@ az servicebus queue show -g <RG> --namespace-name <NS> -n <QUEUE> \
 
 Drain DLQ for inspection (PowerShell / Service Bus Explorer / az ext servicebus).
 
+## Signal consumer
+
+### `signal-cli not found on PATH` / `signal-cli spawn failed`
+
+The Signal LaunchAgent starts `signal-cli` from the macOS user's PATH. Install
+it for the same user that owns the LaunchAgent, then reinstall the agent so
+the current environment is used:
+
+```bash
+brew install signal-cli
+command -v signal-cli
+./mac/launchd/install-signal.sh
+```
+
+If `command -v` succeeds in a terminal but the daemon still cannot find it,
+read `logs/signal-agent.launchd.log`. The supplied Signal plist includes
+common Homebrew locations (`/opt/homebrew/bin` and `/usr/local/bin`); a custom
+installation must put `signal-cli` on that LaunchAgent PATH.
+
+### `signal-cli failed ...` / account is not registered or linked
+
+The bridge does not create or link Signal accounts. Stop the LaunchAgent, then
+complete the account setup manually as the same macOS user:
+
+```bash
+./mac/launchd/uninstall-signal.sh
+signal-cli link
+```
+
+For an existing account, scan the device-link URI with Signal's Linked devices
+flow. If you intentionally need a new account instead, use signal-cli's
+documented registration and verification steps in
+[INSTALL.md §6](./INSTALL.md#6-optional--run-the-signal-consumer). Do **not**
+use `register` to link an existing account: it can unregister an existing
+client on that number. Reinstall only after linking or registration succeeds:
+
+```bash
+./mac/launchd/install-signal.sh
+```
+
+### Producer says `enqueued`, but Signal does not send
+
+1. Confirm the producer used `signal-send`, not `send`. `signal-send` reads
+   `signal_queue` and enqueues to the dedicated Signal queue (for example
+   `signal-queue`); `send` remains the iMessage-only route and reads `queue`.
+2. Confirm the Mac's `signal_queue` has the exact same name and the Mac
+   identity has **Azure Service Bus Data Receiver** on that queue. The producer
+   needs **Azure Service Bus Data Sender** on that same queue.
+3. Check the Signal consumer, not the iMessage consumer:
+
+   ```bash
+   launchctl print gui/$(id -u)/com.imessage-bridge.signal-agent | head -20
+   tail -F logs/signal-agent.log
+   tail -n 50 logs/signal-agent.launchd.log
+   ```
+
+4. The Signal consumer accepts only valid E.164 destinations such as
+   `+15555550100`. Signal usernames and local-format phone numbers are
+   rejected before they reach `signal-cli`.
+5. The Signal consumer has no Signal-specific recipient allowlist or
+   self-only restriction. `signal-agent` intentionally ignores the iMessage
+   `allowed_recipients` setting.
+
+### Signal message keeps retrying
+
+The agent abandons a Signal job when `signal-cli` returns a non-zero exit code,
+so Service Bus retries it. Read the exact signal-cli stderr captured in
+`logs/signal-agent.log`, correct the local account/destination problem, and
+allow the next delivery attempt. Because a send can succeed before the
+subsequent Service Bus completion fails, delivery is at-least-once; do not
+assume retries are globally exactly-once.
+
 ## macOS / Messages.app
 
 ### `osascript: execution error: Not authorized to send Apple events to Messages`
@@ -130,6 +202,25 @@ launchctl enable gui/$(id -u)/com.imessage-bridge.agent            # re-enable i
 The installer renders `mac/launchd/com.imessage-bridge.agent.plist` (a template),
 validates it with `plutil -lint`, and registers via `launchctl bootstrap gui/$UID`
 (the modern API; `load`/`unload` are deprecated since macOS 10.10).
+
+### Signal LaunchAgent commands
+
+The Signal consumer has a distinct label, installer, and log files. These
+commands do not alter the iMessage agent:
+
+```bash
+./mac/launchd/install-signal.sh
+launchctl print gui/$(id -u)/com.imessage-bridge.signal-agent | head -20
+launchctl kickstart -k gui/$(id -u)/com.imessage-bridge.signal-agent
+tail -F logs/signal-agent.log
+tail -n 50 logs/signal-agent.launchd.log
+./mac/launchd/uninstall-signal.sh
+```
+
+Use the `launchctl print` state plus
+`connected to service bus, listening...` in `logs/signal-agent.log` as the
+basic health check. See [Signal consumer](#signal-consumer) for account,
+queue, and delivery failures.
 
 ### The #1 launchd gotcha: Automation permission
 
@@ -234,6 +325,8 @@ nvm install 24 && nvm use 24
 |----------------------|----------------------------------------------------|
 | Agent app log        | `./logs/agent.log` (path from `config.json`)       |
 | launchd stdout+stderr | `./logs/agent.launchd.log` (early-startup errors) |
+| Signal app log       | `./logs/signal-agent.log` (or `signal_log_path`) |
+| Signal launchd stdout+stderr | `./logs/signal-agent.launchd.log` |
 | `az` CLI debug       | `az --debug ...`                                   |
 
 ## Still stuck?

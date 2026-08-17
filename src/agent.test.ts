@@ -101,12 +101,50 @@ test("processOne: dead-letters a recipient outside the allowlist", async () => {
   );
 });
 
+test("processOne: dead-letters a recipient rejected by its channel validator", async () => {
+  const receiver = makeReceiver();
+  let senderCalled = false;
+  const msg = {
+    body: JSON.stringify({ id: "abc", to: "--version", body: "hello" }),
+  } as unknown as ServiceBusReceivedMessage;
+  await processOne(msg, {
+    receiver,
+    sender: async () => {
+      senderCalled = true;
+      return true;
+    },
+    logger: noopLog,
+    recipientValidator: (to) => (to.startsWith("+") ? undefined : "must be E.164"),
+  });
+  assert.equal(senderCalled, false);
+  assert.deepEqual(receiver.calls.map((c) => c.action), ["deadletter"]);
+  assert.equal(
+    (receiver.calls[0]!.opts as { deadLetterReason: string }).deadLetterReason,
+    "invalid-recipient",
+  );
+});
+
 test("processOne: abandons on osascript failure (transient)", async () => {
   const receiver = makeReceiver();
   const msg = {
     body: JSON.stringify({ id: "abc", to: "+15555550100", body: "hello" }),
   } as unknown as ServiceBusReceivedMessage;
   await processOne(msg, { receiver, sender: failSender, logger: noopLog });
+  assert.deepEqual(receiver.calls.map((c) => c.action), ["abandon"]);
+});
+
+test("processOne: abandons when a sender throws", async () => {
+  const receiver = makeReceiver();
+  const msg = {
+    body: JSON.stringify({ id: "abc", to: "+15555550100", body: "hello" }),
+  } as unknown as ServiceBusReceivedMessage;
+  await processOne(msg, {
+    receiver,
+    sender: async () => {
+      throw new Error("signal-cli process error");
+    },
+    logger: noopLog,
+  });
   assert.deepEqual(receiver.calls.map((c) => c.action), ["abandon"]);
 });
 

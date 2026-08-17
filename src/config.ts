@@ -27,6 +27,8 @@ export type BridgeConfig = {
   signal_account?: string;
   /** Optional — log path override for the Signal consumer (default ./logs/signal-agent.log). */
   signal_log_path?: string;
+  /** Optional absolute signal-cli executable path; LaunchAgent supplies this automatically. */
+  signal_cli_path?: string;
 };
 
 export function loadConfig(path?: string): BridgeConfig {

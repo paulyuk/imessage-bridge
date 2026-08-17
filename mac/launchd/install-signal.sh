@@ -8,8 +8,7 @@
 #   mac/launchd/install-signal.sh
 #
 # Requires: macOS, Node ≥22 (https://nodejs.org/ or `brew install node`),
-# signal-cli (`brew install signal-cli`) registered/linked to the account
-# named in config.json's "signal_account", and config.json's "signal_queue"
+# signal-cli (`brew install signal-cli`), and config.json's "signal_queue"
 # set to a Service Bus queue you've granted this identity the
 # "Azure Service Bus Data Receiver" role on.
 
@@ -43,10 +42,10 @@ if [[ "${NODE_MAJOR}" -lt 22 ]]; then
 fi
 
 # --- Required: signal-cli on PATH --------------------------------------------
-if ! command -v signal-cli >/dev/null; then
+SIGNAL_CLI_BIN="$(command -v signal-cli || true)"
+if [[ -z "${SIGNAL_CLI_BIN}" || ! -x "${SIGNAL_CLI_BIN}" ]]; then
   echo "❌ signal-cli not found on PATH. Install it:" >&2
   echo "   brew install signal-cli" >&2
-  echo "   then register/link it to the account in config.json's signal_account" >&2
   exit 1
 fi
 
@@ -87,6 +86,7 @@ sed \
   -e "s|__NODE__|${NODE_BIN}|g" \
   -e "s|__REPO__|${REPO_ROOT}|g" \
   -e "s|__HOME__|${HOME}|g" \
+  -e "s|__SIGNAL_CLI__|${SIGNAL_CLI_BIN}|g" \
   "${TEMPLATE}" >"${TMP}"
 
 # Validate the rendered plist before installing it.
@@ -112,6 +112,7 @@ launchctl kickstart -k "${SERVICE}"
 echo "✅ installed and started: ${LABEL}"
 echo "   plist:    ${DEST}"
 echo "   node:     ${NODE_BIN} ($("${NODE_BIN}" --version))"
+echo "   signal-cli: ${SIGNAL_CLI_BIN}"
 echo "   logs:     ${REPO_ROOT}/logs/signal-agent.log"
 echo "             ${REPO_ROOT}/logs/signal-agent.launchd.log  (early-startup errors)"
 echo

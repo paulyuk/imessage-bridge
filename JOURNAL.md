@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-08-17 — Signal Consumer Hardened for Release
+
+| Time | Steering Command | What Happened | Level-Up 🆙 |
+|------|-----------------|---------------|-------------|
+| 16:32 PDT | *"Implement/publish Signal"* | The existing Signal scaffold was hardened into a separately routed consumer: `signal-send` now targets only `signal_queue`, and both Signal commands reject a queue shared with iMessage. Signal validates E.164 destinations but intentionally does not inherit iMessage's allowlist or self-only restriction. | 🆙 Queue identity is now the channel boundary, preventing a producer or consumer from crossing between iMessage and Signal. |
+| 16:32 PDT | *"Prepare the Mac release path"* | The Signal LaunchAgent was pinned to the installed `signal-cli` path. Signal account setup/linking and Azure queue/RBAC provisioning remain explicit manual operations, preserving local account control and identity-only Azure access. | 🆙 The deployment path is operationally complete without automating sensitive account or cloud-resource choices. |
+| 16:32 PDT | *"Publish"* | Release validation could not publish or push: the public GitHub identity was unavailable in this environment, while only a different cached Microsoft-associated identity was present. No push occurred. | 🆙 Authentication state is treated as a release gate rather than silently publishing under the wrong identity. |
+
+---
+
 ## 2026-08-17 — Deploy Runbook + Signal Sibling Consumer
 
 ### What Happened

@@ -9,7 +9,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 
-import { buildSignalCliArgs, signalCliSend } from "./signal.js";
+import {
+  buildSignalCliArgs,
+  isSignalE164,
+  signalCliSend,
+  validateSignalRecipient,
+} from "./signal.js";
 import type { SpawnFn } from "./signal.js";
 import type { Logger } from "./log.js";
 
@@ -22,7 +27,23 @@ const noopLog: Logger = {
 
 test("buildSignalCliArgs: shapes the signal-cli argv", () => {
   const args = buildSignalCliArgs("+15555550199", "+15555550100", "hello world");
-  assert.deepEqual(args, ["-a", "+15555550199", "send", "+15555550100", "-m", "hello world"]);
+  assert.deepEqual(args, [
+    "-a",
+    "+15555550199",
+    "send",
+    "-m",
+    "hello world",
+    "--",
+    "+15555550100",
+  ]);
+});
+
+test("Signal E.164 validation rejects option-like and malformed destinations", () => {
+  assert.equal(isSignalE164("+15555550100"), true);
+  assert.equal(isSignalE164("--account"), false);
+  assert.equal(isSignalE164("15555550100"), false);
+  assert.equal(validateSignalRecipient("+15555550100"), undefined);
+  assert.match(validateSignalRecipient("--version") ?? "", /E\.164/);
 });
 
 function makeFakeChild(): {
@@ -53,8 +74,8 @@ function makeFakeChild(): {
 test("signalCliSend: resolves true on exit code 0", async () => {
   const fake = makeFakeChild();
   const spawnFn: SpawnFn = ((command: string, args: readonly string[]) => {
-    assert.equal(command, "signal-cli");
-    assert.deepEqual(args, ["-a", "+15555550199", "send", "+15555550100", "-m", "hi"]);
+    assert.equal(command, "/opt/homebrew/bin/signal-cli");
+    assert.deepEqual(args, ["-a", "+15555550199", "send", "-m", "hi", "--", "+15555550100"]);
     queueMicrotask(() => fake.finish(0));
     return fake.child as never;
   }) as SpawnFn;
@@ -63,6 +84,7 @@ test("signalCliSend: resolves true on exit code 0", async () => {
     account: "+15555550199",
     to: "+15555550100",
     body: "hi",
+    command: "/opt/homebrew/bin/signal-cli",
     logger: noopLog,
     spawnFn,
   });
@@ -104,4 +126,53 @@ test("signalCliSend: resolves false when the process errors (e.g. binary missing
     spawnFn,
   });
   assert.equal(ok, false);
+});
+
+test("signalCliSend: rejects malformed destinations without spawning", async () => {
+  let spawned = false;
+  const spawnFn: SpawnFn = (() => {
+    spawned = true;
+    throw new Error("should not spawn");
+  }) as SpawnFn;
+
+  const ok = await signalCliSend({
+    account: "+15555550199",
+    to: "--version",
+    body: "hi",
+    logger: noopLog,
+    spawnFn,
+  });
+  assert.equal(ok, false);
+  assert.equal(spawned, false);
+});
+
+test("signalCliSend: resolves false when spawn throws synchronously", async () => {
+  const spawnFn: SpawnFn = (() => {
+    throw new Error("bad spawn options");
+  }) as SpawnFn;
+
+  const ok = await signalCliSend({
+    account: "+15555550199",
+    to: "+15555550100",
+    body: "hi",
+    logger: noopLog,
+    spawnFn,
+  });
+  assert.equal(ok, false);
+});
+
+test("signalCliSend: kills and resolves false on timeout", async () => {
+  const fake = makeFakeChild();
+  const spawnFn: SpawnFn = (() => fake.child as never) as SpawnFn;
+
+  const ok = await signalCliSend({
+    account: "+15555550199",
+    to: "+15555550100",
+    body: "hi",
+    timeoutMs: 1,
+    logger: noopLog,
+    spawnFn,
+  });
+  assert.equal(ok, false);
+  assert.equal(fake.killed, true);
 });

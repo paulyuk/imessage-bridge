@@ -67,6 +67,39 @@ npx imessage-bridge@alpha agent
 # expect log line "sending <uuid>" then "sent <uuid>" within seconds
 ```
 
+## 5. Optional: provision the Signal queue and RBAC
+
+The Signal consumer must not share `imsg-queue`. Create a second queue and
+scope a second Sender/Receiver pair to that **queue resource**, not to the
+namespace. This keeps a Signal producer from enqueueing iMessage jobs and a
+Signal Mac from receiving them.
+
+```bash
+SIGNAL_QUEUE=signal-queue
+az servicebus queue create -g "$RG" --namespace-name "$NS" -n "$SIGNAL_QUEUE"
+
+SIGNAL_SCOPE=$(az servicebus queue show -g "$RG" --namespace-name "$NS" \
+  -n "$SIGNAL_QUEUE" --query id -o tsv)
+
+# The Signal producer identity: can enqueue to signal-queue only.
+az role assignment create --assignee <signal-producer-object-id> \
+  --role "Azure Service Bus Data Sender" --scope "$SIGNAL_SCOPE"
+
+# The Mac identity running signal-agent: can receive from signal-queue only.
+az role assignment create --assignee <signal-mac-object-id> \
+  --role "Azure Service Bus Data Receiver" --scope "$SIGNAL_SCOPE"
+```
+
+Use `signal-send --to <+E164> --body <text> [--config <path>]` with a producer
+config containing `signal_queue: "signal-queue"` when enqueuing Signal jobs.
+`signal-send` selects that dedicated queue; `send` remains iMessage-only and
+uses `queue`. Role propagation can take up to five minutes.
+
+The Signal account itself is local to the Mac and must be installed and linked
+or registered manually with `signal-cli`; the bridge does not manage it. See
+[INSTALL.md §6](../INSTALL.md#6-optional--run-the-signal-consumer) for the
+account steps, foreground test, launchd lifecycle, logs, and recovery.
+
 ## Identity-only — what's *not* allowed
 
 | Auth method                          | Allowed? | Why not                                  |

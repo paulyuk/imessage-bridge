@@ -125,41 +125,156 @@ tail -F logs/agent.log
 
 ## G. Optional — Signal sibling consumer
 
-The repo also ships a Signal consumer built on the same reliability
-pattern (peek-lock receive, complete/abandon/dead-letter, exponential
-backoff, health-alert webhook) as the iMessage agent, driven by
-[`signal-cli`](https://github.com/AsamK/signal-cli) instead of `osascript`.
+The optional Signal consumer has the same Service Bus receive behavior
+(peek-lock, complete/abandon/dead-letter, reconnect backoff, and health alert
+webhook) as the iMessage agent, but calls local
+[`signal-cli`](https://github.com/AsamK/signal-cli). It is an independent
+consumer, not an iMessage fallback.
 
-- [ ] Install `signal-cli` (e.g. `brew install signal-cli` on macOS) and
-      confirm it's linked/registered to the Signal account you'll send from:
+### G.1 Install and manually prepare the Signal account
+
+- [ ] Install `signal-cli` on the Mac that will run the consumer:
   ```bash
-  signal-cli -a <your-signal-account> receive   # sanity check it's registered
+  brew install signal-cli
+  command -v signal-cli
   ```
-- [ ] Provision a **second, separate queue** (keeps RBAC queue-scoped and
-      avoids channel-branching logic in the shared payload path):
+  The Homebrew formula is a macOS option; upstream releases are available from
+  the [`signal-cli` project](https://github.com/AsamK/signal-cli/releases/latest).
+  Keep it current: upstream warns that an old release can become incompatible
+  with Signal service changes.
+
+- [ ] Choose one manual account path. The bridge does **not** run registration,
+      verification, linking, or send account credentials anywhere. Use a local
+      E.164 account value in place of `<signal-account-e164>`; do not replace
+      the placeholder in this committed file.
+
+  - **Link an existing Signal account** (recommended):
+    ```bash
+    signal-cli link
+    ```
+    `signal-cli` prints a device-link URI. In the existing Signal mobile app,
+    open its Linked devices flow and scan that URI. Complete this while logged
+    into the same macOS user that will run the LaunchAgent, because
+    `signal-cli` keeps its local account data in that user's home directory.
+
+  - **Register a new Signal account** (SMS verification):
+    ```bash
+    signal-cli -a "<signal-account-e164>" register
+    signal-cli -a "<signal-account-e164>" verify "<verification-code>"
+    ```
+    Do not use `register` to link an existing account: signal-cli documents
+    that registration can unregister an existing client associated with the
+    number. A registration may require a CAPTCHA or a voice-code flow; follow
+    the current upstream signal-cli guidance if prompted.
+
+### G.2 Provision a dedicated queue and least-privilege roles
+
+- [ ] Create the **separate** Signal queue. Do not share `imsg-queue`; routing
+      is by queue, not by a channel field in the message.
   ```bash
   SIGNAL_QUEUE=signal-queue
   az servicebus queue create -g "$RG" --namespace-name "$NS" -n "$SIGNAL_QUEUE"
+
+  SIGNAL_SCOPE=$(az servicebus queue show -g "$RG" --namespace-name "$NS" \
+    -n "$SIGNAL_QUEUE" --query id -o tsv)
   ```
-  Grant the same two roles (Sender on the producer, Receiver on the Mac)
-  scoped to this queue.
-- [ ] Add `signal_queue` and `signal_account` to `config.json`:
+- [ ] Grant only the required queue-scoped role to each Signal identity:
+  ```bash
+  # Signal producer: enqueue to signal-queue only.
+  az role assignment create --assignee <signal-producer-object-id> \
+    --role "Azure Service Bus Data Sender" --scope "$SIGNAL_SCOPE"
+
+  # Signal Mac: receive from signal-queue only.
+  az role assignment create --assignee <signal-mac-object-id> \
+    --role "Azure Service Bus Data Receiver" --scope "$SIGNAL_SCOPE"
+  ```
+  Do not grant either identity a namespace-level role, and do not reuse the
+  iMessage producer or receiver role just because both consumers use Service
+  Bus. Allow up to five minutes for role propagation.
+
+### G.3 Configure the Mac and the Signal producer
+
+- [ ] Add `signal_queue` and `signal_account` to the Mac's `config.json`:
   ```json
   {
     "namespace_fqdn": "<ns>.servicebus.windows.net",
     "queue": "imsg-queue",
     "signal_queue": "signal-queue",
-    "signal_account": "<your-signal-account>"
+    "signal_account": "<signal-account-e164>",
+    "signal_log_path": "./logs/signal-agent.log"
   }
   ```
-- [ ] Foreground-test, then install as its own LaunchAgent (same
-      per-machine identity model as the iMessage agent — see
-      `mac/launchd/com.imessage-bridge.signal-agent.plist`):
+
+- [ ] Create a separate Signal producer config on the machine that enqueues
+      Signal jobs:
   ```bash
-  npx imessage-bridge@alpha signal-agent    # or: node dist/cli.js signal-agent (foreground test)
-  ./mac/launchd/install-signal.sh           # persistent daemon
+  cat > signal-producer.config.json <<'JSON'
+  {
+    "namespace_fqdn": "<ns>.servicebus.windows.net",
+    "queue": "imsg-queue",
+    "signal_queue": "signal-queue"
+  }
+  JSON
   ```
 
-Both consumers can run on the same Mac (or different machines) independently
-— they're separate queues, separate identities, separate launchd services,
-sharing only the generic `runAgent()` reconnect/backoff/settle logic.
+  Use `signal-send` for this config: it reads `signal_queue` and enqueues only
+  to `signal-queue`. `send` remains the iMessage-only producer route and
+  continues to read `queue`.
+
+  The Signal consumer has no Signal-specific recipient allowlist and is not
+  self-only: it can send to any valid E.164 destination. The Signal consumer
+  requires E.164 destinations (for example, `+15555550100`) and does not
+  accept Signal usernames. `signal-agent` intentionally does not inherit the
+  iMessage `allowed_recipients` setting.
+
+### G.4 Foreground-test, then install launchd
+
+- [ ] Run the Signal consumer in the foreground on the Mac. It requires the
+      Signal account setup above and the Mac's **Signal Receiver** role:
+  ```bash
+  node dist/cli.js signal-agent --config config.json
+  ```
+- [ ] In a separate terminal on the Signal producer, enqueue a fictional smoke
+      test using that producer's queue-specific config. This example requires a
+      cloned, built checkout on the producer too:
+  ```bash
+  npm run build
+  node dist/cli.js signal-send --config signal-producer.config.json \
+    --to "+15555550100" --body "Signal bridge smoke test"
+  ```
+  Watch the foreground consumer for `sending` followed by `sent`, then stop it
+  with ctrl-C. A successful delivery is completed in Service Bus only after
+  `signal-cli` exits successfully. A failed send is abandoned and retried, so
+  downstream delivery should be treated as at-least-once.
+
+- [ ] Install the Signal consumer as its own LaunchAgent (same identity model
+      as the iMessage agent; see
+      `mac/launchd/com.imessage-bridge.signal-agent.plist`):
+  ```bash
+  ./mac/launchd/install-signal.sh
+  launchctl print gui/$(id -u)/com.imessage-bridge.signal-agent | head -20
+  ```
+  Look for `state = running`. The installer is idempotent; re-run it after a
+  Node or signal-cli path change.
+
+### G.5 Health, logs, and removal
+
+```bash
+tail -F logs/signal-agent.log
+tail -n 50 logs/signal-agent.launchd.log
+./mac/launchd/uninstall-signal.sh
+```
+
+- `logs/signal-agent.log` is the structured application log. Healthy startup
+  includes `connected to service bus, listening...`; signal-cli delivery
+  failures are logged here.
+- `logs/signal-agent.launchd.log` is launchd stdout/stderr and is the first
+  place to look for missing config, a missing `signal-cli` binary, or startup
+  failures before structured logging begins.
+- `uninstall-signal.sh` stops and removes **only** the Signal LaunchAgent; it
+  does not unlink the Signal account, delete its local data, or alter Service
+  Bus resources.
+
+Both consumers can run on the same Mac (or different machines) independently:
+separate queues, roles, configs, LaunchAgents, and logs, sharing only the
+generic receive/retry/settle implementation.
