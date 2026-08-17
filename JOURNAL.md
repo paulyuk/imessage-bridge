@@ -5,6 +5,51 @@
 
 ---
 
+## 2026-08-17 — Deploy Runbook + Signal Sibling Consumer
+
+### What Happened
+
+A deploy-today inspection turned into real scaffolding: `DEPLOY-MAC-MINI.md` is
+a new, portable, PII-free checklist covering Azure Service Bus/RBAC
+provisioning, Mac local setup, the Messages.app Automation gotcha, launchd
+install, and a smoke test — so a fresh `git pull` on the receiving Mac is all
+that's needed to get moving. Along the way, `scripts/doctor.sh` was found
+still checking for the deleted Python-era stack (`uv`, `python3`,
+`producer/cli.py`) — a real bug left over from the TypeScript migration — and
+was fixed. A Signal (`signal-cli`) sibling consumer was also scaffolded:
+`src/signal.ts` (mirroring `messages.ts`'s `osascriptSend`), a new
+`signal-agent` CLI subcommand, `signal_queue`/`signal_account` config fields,
+and a second launchd plist + install/uninstall pair.
+
+### Why
+
+The bridge's `runAgent()` was already broker/channel-agnostic — it just needs
+a `Sender` function and a queue name. Adding Signal support didn't need any
+changes to the reconnect/backoff/dead-letter/health-alert core; it only
+needed a new sender and a second, separately-scoped queue.
+
+### Steering Moment
+
+The user asked for research only at first ("do not deploy or make changes
+yet"), then — after seeing the findings — asked for something portable they
+could actually sync to the Mac mini, with one hard constraint: **no PII**
+(hostnames, tenant/subscription IDs, personal paths) in anything committed
+to `main`. That constraint caught a real issue during the commit itself: the
+sandbox's auto-detected git identity embedded its hostname
+(`...@<hostname>.local`); it was corrected to match the repo's existing
+author convention before pushing.
+
+### Impact
+
+Both consumers now share one proven reliability pattern via one unmodified
+core loop, differing only in sender + queue. Basic Service Bus tier was
+confirmed sufficient for both (Entra ID/RBAC, queues, dead-letter,
+peek-lock; 10,000 queues/namespace headroom). Actual Azure resource
+provisioning is intentionally left as a manual step — namespace/queue names
+and subscription choice are the user's call, not something to commit.
+
+---
+
 ## 2026-05-08 — Mac Agent Becomes a LaunchAgent
 
 ### What Happened

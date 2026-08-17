@@ -45,3 +45,21 @@
 - **Date:** 2026-05-08
 - **Context:** macOS cannot show the Messages Automation permission prompt from a launchd background process.
 - **Decision:** Document the onboarding arc as foreground-test, install, verify, done; users must click Allow in the foreground run before relying on launchd.
+
+### D-008: Signal sibling consumer reuses runAgent() unchanged, via a separate queue
+- **By:** Copilot (deploy-inspection session)
+- **Date:** 2026-08-17
+- **Context:** Needed the cleanest way to add a Signal (`signal-cli`) consumer with the same Service Bus reliability pattern (peek-lock, exponential backoff, health-alert webhook) as the iMessage agent, without duplicating that logic.
+- **Decision:** `agent.ts`'s `runAgent({ config, sender })` was already broker/channel-agnostic. Added `src/signal.ts` (`signalCliSend`, mirroring `messages.ts`'s `osascriptSend` shape) as a second `Sender`, wired via a new `signal-agent` CLI subcommand, driven by a **separate** `signal_queue` (not a shared/fan-out queue). Keeps RBAC queue-scoped (least privilege) and avoids channel-branching logic in the shared payload/dead-letter path. `runAgent()`'s core loop was not modified.
+
+### D-009: Confirmed Basic Service Bus tier is sufficient for both consumers
+- **By:** Copilot (deploy-inspection session)
+- **Date:** 2026-08-17
+- **Context:** Needed to verify whether Premium tier is required before deploying, and whether adding a second (Signal) queue changes that.
+- **Decision:** Basic tier supports Microsoft Entra ID/RBAC, queues, dead-letter, and peek-lock — everything both consumers need — and allows up to 10,000 queues per namespace, trivial headroom for a second `signal-queue`. No topics/sessions/dedup required. Basic tier confirmed sufficient; no upgrade needed.
+
+### D-010: Fixed stale `scripts/doctor.sh` Python-era references
+- **By:** Copilot (deploy-inspection session)
+- **Date:** 2026-08-17
+- **Context:** `doctor.sh` was never updated after the TypeScript migration (commit `5befafc`) and still referenced deleted Python tooling (`uv`, `python3`, `producer/cli.py`, `mac/agent.py`), producing false-negative health checks.
+- **Decision:** Replaced with Node/TypeScript equivalents (`node --version`, `node -e` for JSON/version checks, `npx imessage-bridge@alpha agent`/`send`) and added an optional Signal-consumer health section. Verified via manual runs with/without `signal_queue`/`signal_account` set.
