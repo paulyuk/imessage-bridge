@@ -9,8 +9,14 @@ export type BridgeConfig = {
   namespace_fqdn: string;
   /** e.g. "imsg-queue" */
   queue: string;
-  /** Optional suffix appended to outgoing bodies (default 🐩 in example). */
+  /** Optional suffix appended to outgoing bodies. */
   signature?: string;
+  /** Optional prefix prepended to outgoing bodies. */
+  message_prefix?: string;
+  /** Optional E.164 recipient allowlist for outbound messages. */
+  allowed_recipients?: string[];
+  /** Optional compiled local helper used for Messages automation. */
+  automation_helper_path?: string;
   poll_interval_s?: number;
   log_path?: string;
   health_endpoint?: string;

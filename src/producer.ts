@@ -9,6 +9,7 @@ import type { TokenCredential } from "@azure/identity";
 import { ServiceBusClient } from "@azure/service-bus";
 
 import type { BridgeConfig } from "./config.js";
+import { decorateMessage } from "./messages.js";
 
 export type Payload = {
   id: string;
@@ -21,20 +22,19 @@ export type BuildPayloadArgs = {
   to: string;
   body: string;
   signature?: string;
+  messagePrefix?: string;
   now?: () => Date;
 };
 
 export function buildPayload(args: BuildPayloadArgs): Payload {
-  const sig = (args.signature ?? "").trim();
-  let finalBody = args.body;
-  if (sig && !finalBody.trim().endsWith(sig)) {
-    finalBody = finalBody.replace(/\s+$/, "") + " " + sig;
-  }
   const clock = args.now ?? (() => new Date());
   return {
     id: randomUUID(),
     to: args.to,
-    body: finalBody,
+    body: decorateMessage(args.body, {
+      prefix: args.messagePrefix,
+      signature: args.signature,
+    }),
     ts: clock().toISOString(),
   };
 }
@@ -58,7 +58,12 @@ export async function sendMessage(opts: SendMessageArgs): Promise<string> {
     throw new Error(`--to must be E.164 (e.g. +14255551234), got: ${to}`);
   }
 
-  const payload = buildPayload({ to, body, signature: config.signature });
+  const payload = buildPayload({
+    to,
+    body,
+    messagePrefix: config.message_prefix,
+    signature: config.signature,
+  });
   const cred: TokenCredential = credential ?? new DefaultAzureCredential();
   const make: ClientFactory = clientFactory ?? ((fqdn, c) => new ServiceBusClient(fqdn, c));
   const client = make(config.namespace_fqdn, cred);

@@ -58,6 +58,49 @@ test("processOne: parses good payload, calls sender, completes on success", asyn
   assert.deepEqual(receiver.calls.map((c) => c.action), ["complete"]);
 });
 
+test("processOne: applies configured prefix and signature", async () => {
+  const receiver = makeReceiver();
+  const sender: Sender = async (_to, body) => {
+    assert.equal(body, "[m365] hello ⚡");
+    return true;
+  };
+  const msg = {
+    body: JSON.stringify({ id: "abc", to: "+15555550100", body: "hello" }),
+  } as unknown as ServiceBusReceivedMessage;
+  await processOne(msg, {
+    receiver,
+    sender,
+    logger: noopLog,
+    messagePrefix: "[m365]",
+    signature: "⚡",
+  });
+  assert.deepEqual(receiver.calls.map((c) => c.action), ["complete"]);
+});
+
+test("processOne: dead-letters a recipient outside the allowlist", async () => {
+  const receiver = makeReceiver();
+  let senderCalled = false;
+  const sender: Sender = async () => {
+    senderCalled = true;
+    return true;
+  };
+  const msg = {
+    body: JSON.stringify({ id: "abc", to: "+15555550100", body: "hello" }),
+  } as unknown as ServiceBusReceivedMessage;
+  await processOne(msg, {
+    receiver,
+    sender,
+    logger: noopLog,
+    allowedRecipients: ["+15555550101"],
+  });
+  assert.equal(senderCalled, false);
+  assert.deepEqual(receiver.calls.map((c) => c.action), ["deadletter"]);
+  assert.equal(
+    (receiver.calls[0]!.opts as { deadLetterReason: string }).deadLetterReason,
+    "recipient-not-allowed",
+  );
+});
+
 test("processOne: abandons on osascript failure (transient)", async () => {
   const receiver = makeReceiver();
   const msg = {

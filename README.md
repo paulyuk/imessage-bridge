@@ -125,7 +125,12 @@ cat > config.json <<JSON
   "namespace_fqdn": "$FQDN",
   "queue": "imsg-queue",
   "poll_interval_s": 3,
-  "log_path": "./logs/agent.log"
+  "log_path": "./logs/agent.log",
+  "message_prefix": "[m365]",
+  "signature": "⚡",
+  "allowed_recipients": [
+    "+15555550100"
+  ]
 }
 JSON
 ```
@@ -135,6 +140,8 @@ Prefer to keep config out of the working dir? Set `IMSG_CONFIG=~/.config/imessag
 Notes:
 - config.json is gitignored. Do not commit it.
 - `namespace_fqdn` must exactly match the Service Bus namespace FQDN (no protocol, no trailing slash).
+- `allowed_recipients` is an optional E.164 allowlist enforced by the Mac consumer. A queued message addressed to another number is dead-lettered before it can reach Messages.app.
+- `message_prefix` and `signature` label every outbound message at the consumer boundary. The producer cannot bypass them.
 - If you’re unsure what the namespace name is, you can list namespaces with:
 
 ```bash
@@ -193,6 +200,16 @@ The installer is idempotent, so re-run it after `git pull` to pick up
 new code. Full daemon setup and common commands: [INSTALL.md](./INSTALL.md#5-start-the-mac-agent).
 Troubleshooting starts with the two log files: [TROUBLESHOOTING.md](./TROUBLESHOOTING.md#launchd).
 
+### Persistent Messages automation permission
+
+The default `osascript` path can cause macOS to repeatedly prompt for Messages automation because it is an unbundled command-line process. On a Mac with Xcode Command Line Tools, install the included signed local helper before the first foreground send:
+
+```bash
+./mac/automation/install-helper.sh
+```
+
+Add the printed path to `automation_helper_path` in `config.json`, then run one foreground smoke test and approve **iMessage Bridge** when macOS asks to control Messages. The helper has the stable local identifier `com.paulyuk.imessage-bridge.automation`, so the Automation approval persists across daemon restarts.
+
 ## 🏗 Architecture
 
 ```mermaid
@@ -217,7 +234,7 @@ flowchart LR
     A -- "OAuth token" --> AAD
     P == "send (AMQP 1.0) — Data Sender role" ==> SB
     SB == "long-poll receive (AMQP 1.0) — Data Receiver role" ==> A
-    A -- "osascript" --> M
+    A -- "signed local helper" --> M
     M -. "send" .-> iMsg
 
     classDef az fill:#0078d4,stroke:#005a9e,color:#fff
@@ -253,7 +270,7 @@ sequenceDiagram
     alt success
         M-->>R: iMessage delivered
         A->>SB: complete(message)
-    else osascript fails
+    else automation helper fails
         A->>SB: abandon(message) — retry
     else bad payload
         A->>SB: dead_letter(message)

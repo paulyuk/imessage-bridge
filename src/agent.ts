@@ -13,7 +13,7 @@ import type { ServiceBusReceivedMessage, ServiceBusReceiver } from "@azure/servi
 import type { BridgeConfig } from "./config.js";
 import { createLogger } from "./log.js";
 import type { Logger } from "./log.js";
-import { osascriptSend } from "./messages.js";
+import { decorateMessage, osascriptSend } from "./messages.js";
 
 export type BackoffOptions = { base?: number; capMs?: number };
 
@@ -55,13 +55,16 @@ export type ProcessOneCtx = {
   >;
   sender: Sender;
   logger: Logger;
+  messagePrefix?: string;
+  signature?: string;
+  allowedRecipients?: string[];
 };
 
 export async function processOne(
   msg: ServiceBusReceivedMessage,
   ctx: ProcessOneCtx,
 ): Promise<void> {
-  const { receiver, sender, logger } = ctx;
+  const { receiver, sender, logger, messagePrefix, signature, allowedRecipients } = ctx;
 
   let payload: { id?: string; to?: string; body?: string } | null = null;
   try {
@@ -105,9 +108,22 @@ export async function processOne(
     }
     return;
   }
+  if (allowedRecipients?.length && !allowedRecipients.includes(to)) {
+    logger.error(`recipient ${to} is not allowed, dead-lettering ${id}`);
+    try {
+      await receiver.deadLetterMessage(msg, {
+        deadLetterReason: "recipient-not-allowed",
+        deadLetterErrorDescription: `recipient ${to} is not in allowed_recipients (id=${id})`,
+      });
+    } catch (settleErr) {
+      const sm = settleErr instanceof Error ? settleErr.message : String(settleErr);
+      logger.error(`failed to dead-letter: ${sm}`);
+    }
+    return;
+  }
 
   logger.info(`sending ${id} -> ${to}`);
-  const ok = await sender(to, body);
+  const ok = await sender(to, decorateMessage(body, { prefix: messagePrefix, signature }));
   try {
     if (ok) {
       await receiver.completeMessage(msg);
@@ -138,7 +154,14 @@ export async function runAgent(args: RunAgentArgs): Promise<number> {
   const pollMs = (config.poll_interval_s ?? 3) * 1000;
   const alertThreshold = config.disconnect_alert_threshold ?? 3;
   const send: Sender =
-    sender ?? ((to, body) => osascriptSend({ to, body, logger: log }));
+    sender ??
+    ((to, body) =>
+      osascriptSend({
+        to,
+        body,
+        helperPath: config.automation_helper_path,
+        logger: log,
+      }));
 
   log.info(`starting agent — fqdn=${fqdn} queue=${queue}`);
 
@@ -175,7 +198,14 @@ export async function runAgent(args: RunAgentArgs): Promise<number> {
           }
           for (const m of msgs) {
             if (stop) break;
-            await processOne(m, { receiver, sender: send, logger: log });
+            await processOne(m, {
+              receiver,
+              sender: send,
+              logger: log,
+              messagePrefix: config.message_prefix,
+              signature: config.signature,
+              allowedRecipients: config.allowed_recipients,
+            });
           }
         }
       } finally {

@@ -5,5 +5,9 @@
   "model_version": "latest",
   "poll_interval_s": 3,
   "log_path": "./logs/agent.log",
-  "signature": "🐩"
+  "message_prefix": "[m365]",
+  "signature": "⚡",
+  "allowed_recipients": [
+    "+15555550100"
+  ]
 }

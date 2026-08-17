@@ -21,6 +21,16 @@ test("buildPayload: appends signature when configured and missing", () => {
   assert.match(p.id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 });
 
+test("buildPayload: prepends a configured prefix", () => {
+  const p = buildPayload({
+    to: "+15555550100",
+    body: "hello",
+    messagePrefix: "[m365]",
+    signature: "⚡",
+  });
+  assert.equal(p.body, "[m365] hello ⚡");
+});
+
 test("buildPayload: does NOT double-append signature", () => {
   const p = buildPayload({ to: "+15555550100", body: "hello 🐩", signature: "🐩" });
   assert.equal(p.body, "hello 🐩");
