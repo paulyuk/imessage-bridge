@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LaunchAgent template for the Signal sibling consumer.
+
+  Mirrors mac/launchd/com.imessage-bridge.agent.plist exactly, except it runs
+  the `signal-agent` subcommand and logs to a separate file. Do NOT install
+  this file by hand — use the installer:
+
+      mac/launchd/install-signal.sh
+
+  which fills __NODE__, __REPO__, __HOME__, validates with `plutil -lint`,
+  and registers via the modern `launchctl bootstrap` API.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.imessage-bridge.signal-agent</string>
+
+  <!-- Node ≥22. Pinned to the absolute node path detected at install time. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>__REPO__/dist/cli.js</string>
+    <string>signal-agent</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+
+  <!-- HOME so DefaultAzureCredential can find ~/.azure/ token cache.
+       PATH so the Node process can spawn `signal-cli` / `az` if needed. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>__HOME__</string>
+    <key>PATH</key>
+    <string>__HOME__/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <!-- Start at login and keep alive forever. -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- If the agent crashes, wait at least 60s before relaunching. Prevents a
+       crash-loop from pegging CPU (e.g. bad config, expired az token). -->
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+
+  <!-- Background priority — don't compete with foreground apps. -->
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <!-- launchd captures stdout/stderr from before the agent's logger
+       initializes (config errors, import failures). The agent itself
+       writes structured logs to logs/signal-agent.log. -->
+  <key>StandardOutPath</key>
+  <string>__REPO__/logs/signal-agent.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>__REPO__/logs/signal-agent.launchd.log</string>
+</dict>
+</plist>

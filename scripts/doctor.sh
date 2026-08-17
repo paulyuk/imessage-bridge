@@ -56,8 +56,8 @@ section() { echo; echo "── $1 ──"; }
 
 # ---------- 1. shared checks --------------------------------------------------
 section "Environment"
-check "uv installed"              "command -v uv >/dev/null"
-check "Python 3.10+"              "uv python find '>=3.10' >/dev/null 2>&1 || python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)'"
+check "node installed"            "command -v node >/dev/null"
+check "node >= 22 (Active LTS)"    "node -e 'process.exit(parseInt(process.versions.node.split(\".\")[0],10) >= 22 ? 0 : 1)'"
 
 section "Config"
 if [[ ! -f config.json ]]; then
@@ -65,9 +65,9 @@ if [[ ! -f config.json ]]; then
   echo "       fix: cp config.example.json config.json && \$EDITOR config.json"
   fails=$((fails+1))
 else
-  check "config.json is valid JSON" "python3 -c 'import json; json.load(open(\"config.json\"))'"
-  fqdn=$(python3 -c 'import json; print(json.load(open("config.json")).get("namespace_fqdn",""))' 2>/dev/null || echo "")
-  queue=$(python3 -c 'import json; print(json.load(open("config.json")).get("queue",""))' 2>/dev/null || echo "")
+  check "config.json is valid JSON" "node -e 'JSON.parse(require(\"fs\").readFileSync(\"config.json\",\"utf8\"))'"
+  fqdn=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync("config.json","utf8")).namespace_fqdn||"")}catch{}' 2>/dev/null || echo "")
+  queue=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync("config.json","utf8")).queue||"")}catch{}' 2>/dev/null || echo "")
   if [[ "$fqdn" == "REPLACE-ME.servicebus.windows.net" || -z "$fqdn" ]]; then
     echo "  ${FAIL} config.json namespace_fqdn is unset (REPLACE-ME)"
     fails=$((fails+1))
@@ -118,6 +118,22 @@ else
   fi
 fi
 
+section "Signal sibling consumer (optional)"
+signal_queue=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync("config.json","utf8")).signal_queue||"")}catch{}' 2>/dev/null || echo "")
+signal_account=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync("config.json","utf8")).signal_account||"")}catch{}' 2>/dev/null || echo "")
+if [[ -z "$signal_queue" && -z "$signal_account" ]]; then
+  note "signal_queue/signal_account not set in config.json — signal-agent not in use, skipping."
+else
+  if [[ -z "$signal_queue" || -z "$signal_account" ]]; then
+    echo "  ${FAIL} config.json has only one of signal_queue/signal_account set — need both"
+    fails=$((fails+1))
+  else
+    echo "  ${PASS} signal_queue = $signal_queue"
+    echo "  ${PASS} signal_account set"
+  fi
+  check "signal-cli installed" "command -v signal-cli >/dev/null"
+fi
+
 section "Tests"
 if [[ -f package.json ]]; then
   if npm test --silent >/tmp/imsg-doctor-test.log 2>&1; then
@@ -166,14 +182,30 @@ case "$(uname -s)" in
 
     note "Messages.app Automation permission cannot be checked from a script."
     note "If sends fail with 'Not authorized to send Apple events to Messages',"
-    note "run \`uv run mac/agent.py\` once in a Terminal and click Allow."
+    note "run \`npx imessage-bridge@alpha agent\` once in a Terminal and click Allow."
+
+    if [[ -n "$signal_queue" && -n "$signal_account" ]]; then
+      slabel="com.imessage-bridge.signal-agent"
+      splist="$HOME/Library/LaunchAgents/${slabel}.plist"
+      if [[ ! -f "$splist" ]]; then
+        warn "$slabel not installed" "fix: ./mac/launchd/install-signal.sh"
+      else
+        sstate=$(launchctl print "gui/$(id -u)/${slabel}" 2>/dev/null | awk '/^[[:space:]]*state[[:space:]]*=/ {print $3; exit}')
+        if [[ "$sstate" == "running" ]]; then
+          echo "  ${PASS} ${slabel} state = running"
+        else
+          echo "  ${FAIL} ${slabel} state = ${sstate:-unknown}"
+          fails=$((fails+1))
+        fi
+      fi
+    fi
     ;;
 
   Linux)
     section "Producer host"
     note "Linux/cloud producer detected — no daemon to check."
     note "Smoke-test by enqueuing one message:"
-    note "  uv run producer/cli.py --to \"+15555550100\" --body \"smoke test\""
+    note "  npx imessage-bridge@alpha send --to \"+15555550100\" --body \"smoke test\""
     ;;
 
   *)

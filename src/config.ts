@@ -15,6 +15,12 @@ export type BridgeConfig = {
   log_path?: string;
   health_endpoint?: string;
   disconnect_alert_threshold?: number;
+  /** Optional — queue name for the Signal sibling consumer (e.g. "signal-queue"). */
+  signal_queue?: string;
+  /** Optional — signal-cli account (E.164) the Signal consumer sends from. */
+  signal_account?: string;
+  /** Optional — log path override for the Signal consumer (default ./logs/signal-agent.log). */
+  signal_log_path?: string;
 };
 
 export function loadConfig(path?: string): BridgeConfig {

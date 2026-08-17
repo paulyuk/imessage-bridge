@@ -14,8 +14,11 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { loadConfig } from "./config.js";
+import type { BridgeConfig } from "./config.js";
 import { sendMessage } from "./producer.js";
 import { runAgent } from "./agent.js";
+import type { Sender } from "./agent.js";
+import { signalCliSend } from "./signal.js";
 
 type ParsedFlags = {
   to?: string;
@@ -66,6 +69,7 @@ function printHelp(): void {
       "Usage:",
       "  imessage-bridge send  --to <+E164> --body <text> [--config <path>]",
       "  imessage-bridge agent [--config <path>]",
+      "  imessage-bridge signal-agent [--config <path>]",
       "  imessage-bridge help | --help | -h",
       "  imessage-bridge version | --version | -v",
       "",
@@ -75,6 +79,7 @@ function printHelp(): void {
       "Examples:",
       "  imessage-bridge send --to +14255551234 --body 'hello from anywhere'",
       "  imessage-bridge agent",
+      "  imessage-bridge signal-agent   # requires config.signal_queue + config.signal_account",
       "",
     ].join("\n"),
   );
@@ -111,6 +116,31 @@ async function main(argv: string[]): Promise<number> {
 
   if (cmd === "agent") {
     return await runAgent({ config });
+  }
+
+  if (cmd === "signal-agent") {
+    if (!config.signal_queue) {
+      process.stderr.write(
+        "error: config.signal_queue is required for signal-agent (e.g. \"signal-queue\")\n" +
+          "  fix: add \"signal_queue\" to config.json\n",
+      );
+      return 2;
+    }
+    if (!config.signal_account) {
+      process.stderr.write(
+        "error: config.signal_account is required for signal-agent (e.g. \"+15555550100\")\n" +
+          "  fix: add \"signal_account\" to config.json\n",
+      );
+      return 2;
+    }
+    const signalConfig: BridgeConfig = {
+      ...config,
+      queue: config.signal_queue,
+      log_path: config.signal_log_path ?? "./logs/signal-agent.log",
+    };
+    const account = config.signal_account;
+    const sender: Sender = (to, body) => signalCliSend({ account, to, body });
+    return await runAgent({ config: signalConfig, sender });
   }
 
   process.stderr.write(`unknown command: ${cmd}\n`);
