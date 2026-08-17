@@ -15,7 +15,7 @@ A small, opinionated bridge that lets an inexpensive Linux/cloud "producer" (or 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 [![macOS LaunchAgent](https://img.shields.io/badge/runs%20on-macOS%20LaunchAgent-000000)](./mac/launchd/install.sh)
 
-[Quick start](#-quick-start) · [Architecture](#-architecture) · [Standards & portability](#-standards--portability) · [Install](./INSTALL.md) · [Troubleshooting](./TROUBLESHOOTING.md) · [Security](#-security) · [Contributing](#-contributing)
+[Quick start](#-quick-start) · [Signal consumer](#-signal-service-bus-consumer) · [Architecture](#-architecture) · [Standards & portability](#-standards--portability) · [Install](./INSTALL.md) · [Troubleshooting](./TROUBLESHOOTING.md) · [Security](#-security) · [Contributing](#-contributing)
 
 </div>
 
@@ -210,6 +210,40 @@ The default `osascript` path can cause macOS to repeatedly prompt for Messages a
 
 Add the printed path to `automation_helper_path` in `config.json`, then run one foreground smoke test and approve **iMessage Bridge** when macOS asks to control Messages. The helper has the stable local identifier `com.paulyuk.imessage-bridge.automation`, so the Automation approval persists across daemon restarts.
 
+## 📳 Signal Service Bus consumer
+
+The optional Signal consumer uses the same durable Service Bus receive loop as
+the iMessage agent, but invokes local
+[`signal-cli`](https://github.com/AsamK/signal-cli). It is deliberately a
+separate deployment:
+
+- **Separate queue and roles.** Use `signal-queue` (or another dedicated
+  queue), grant its producer only **Azure Service Bus Data Sender**, and grant
+  the Mac running `signal-agent` only **Azure Service Bus Data Receiver**.
+  Do not send Signal jobs through `imsg-queue`.
+- **Manual Signal setup.** Install `signal-cli` and link an existing Signal
+  account or register a new one before starting the agent. The bridge never
+  registers, links, or manages a Signal account.
+- **Dedicated producer route.** Use
+  `imessage-bridge signal-send --to "+15555550100" --body "Signal smoke test"`
+  with a config containing `signal_queue`; it enqueues only to that dedicated
+  queue. `imessage-bridge send` remains the iMessage producer route and
+  enqueues to the ordinary `queue` setting.
+- **No Signal self-only policy.** The Signal consumer adds no Signal-specific
+  recipient allowlist and is not limited to the sending account. Destinations
+  queued through this bridge must be valid E.164 numbers, such as
+  `+15555550100`; Signal usernames are not accepted by the Signal consumer.
+  `signal-agent` deliberately does not inherit the iMessage
+  `allowed_recipients` setting.
+- **Separate operations.** Run `signal-agent` once in the foreground, then
+  install `com.imessage-bridge.signal-agent` with
+  `./mac/launchd/install-signal.sh`. Its logs are
+  `logs/signal-agent.log` and `logs/signal-agent.launchd.log`.
+
+The production checklist, including the manual linking/registration choices,
+Signal queue RBAC, foreground smoke test, and launchd lifecycle is in
+[DEPLOY-MAC-MINI.md §G](./DEPLOY-MAC-MINI.md#g-optional--signal-sibling-consumer).
+
 ## 🏗 Architecture
 
 ```mermaid
@@ -322,13 +356,13 @@ See [`SECURITY.md`](./SECURITY.md) for the full rule + threat model.
 
 ```
 imessage-bridge/
-├── producer/
-│   ├── __init__.py
-│   └── cli.py               # enqueue CLI — runs anywhere
+├── src/
+│   ├── cli.ts               # enqueue and consumer CLI
+│   ├── agent.ts             # shared Service Bus consumer
+│   ├── messages.ts          # Messages.app sender
+│   └── signal.ts            # signal-cli sender
 ├── mac/
-│   ├── agent.py             # long-running consumer
-│   ├── send_applescript.py  # osascript wrapper
-│   ├── requirements.txt
+│   ├── automation/          # optional signed Messages helper
 │   └── launchd/
 │       ├── com.imessage-bridge.agent.plist  # LaunchAgent template
 │       ├── install.sh                     # render + bootstrap

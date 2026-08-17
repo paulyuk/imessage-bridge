@@ -29,13 +29,15 @@
   <string>__REPO__</string>
 
   <!-- HOME so DefaultAzureCredential can find ~/.azure/ token cache.
-       PATH so the Node process can spawn `signal-cli` / `az` if needed. -->
+       IMSG_SIGNAL_CLI pins the binary validated by install-signal.sh. -->
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>
     <string>__HOME__</string>
     <key>PATH</key>
     <string>__HOME__/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>IMSG_SIGNAL_CLI</key>
+    <string>__SIGNAL_CLI__</string>
   </dict>
 
   <!-- Start at login and keep alive forever. -->

@@ -20,6 +20,7 @@ Want it permanently on `PATH`? `npm i -g imessage-bridge@alpha`, then drop the `
 | Node.js ≥ 22 (LTS, recommend 24) | Runtime for the CLI and the daemon | `nvm install 24 && nvm use 24` (or `brew install node`, or https://nodejs.org/) |
 | `az` CLI      | Azure provisioning + OAuth login     | https://learn.microsoft.com/cli/azure/install-azure-cli              |
 | `gh` CLI      | Optional — only needed if you clone the repo (launchd installer / contributing) | https://cli.github.com/ |
+| `signal-cli`  | Signal consumer only: local Signal sender | `brew install signal-cli` on macOS, or [an upstream release](https://github.com/AsamK/signal-cli/releases/latest) |
 
 > Node 22 (Jod) is the minimum because the project depends on the Node 22 native test runner + `parseArgs`. Node 24 (Krypton) is the current Active LTS — recommended for new installs.
 
@@ -89,7 +90,7 @@ The first successful send should trigger a macOS **Automation** prompt. Click
 > ⚠️ **Do not skip this.** launchd cannot show the Automation prompt. If the
 > permission has not been granted, the daemon will start but `osascript` will
 > fail with *"Not authorized to send Apple events to Messages."* See
-> [§6](#6-macos-permissions-the-gotcha).
+> [§7](#7-macos-permissions-the-gotcha).
 
 ### 5.2 Install the LaunchAgent
 
@@ -143,7 +144,129 @@ The two log files tell different stories:
   happen *before* logging initializes (missing config, import failures,
   Automation denials).
 
-## 6. macOS permissions (the gotcha)
+## 6. Optional: run the Signal consumer
+
+The Signal consumer is a sibling of the iMessage agent: it receives only from
+`signal_queue` and sends through the local `signal-cli` account named by
+`signal_account`. It does **not** register or link a Signal account for you.
+Complete the following manual work before starting it.
+
+1. Install `signal-cli`:
+
+   ```bash
+   brew install signal-cli
+   command -v signal-cli
+   ```
+
+2. Choose **one** account setup path. Use an E.164 account placeholder; do not
+   put a real account number in a checked-in config or command history.
+
+   - **Link an existing account** (recommended): run the following command,
+     then use Signal's *Linked devices* flow on the existing mobile app to
+     scan the URI it displays.
+
+     ```bash
+     signal-cli link
+     ```
+
+   - **Register a new account**: registration requires receiving an SMS or
+     voice verification code. It can unregister an existing client associated
+     with that number, so do not use it to link an existing account.
+
+     ```bash
+     signal-cli -a "<signal-account-e164>" register
+     signal-cli -a "<signal-account-e164>" verify "<verification-code>"
+     ```
+
+   Keep `signal-cli` current; its upstream project warns that old releases can
+   become incompatible with Signal service changes. Signal account keys stay
+   with the macOS user who ran these commands, so use that same user for
+   launchd.
+
+3. Provision a dedicated queue and queue-scoped roles as described in
+   [Azure quickstart §5](./infra/azure-quickstart.md#5-optional--provision-the-signal-queue-and-rbac).
+   Do not reuse the iMessage queue or give either Signal identity namespace-wide
+   access.
+
+4. Add the Signal settings to the Mac's `config.json`:
+
+   ```json
+   {
+     "namespace_fqdn": "<your-namespace>.servicebus.windows.net",
+     "queue": "imsg-queue",
+     "signal_queue": "signal-queue",
+     "signal_account": "<signal-account-e164>",
+     "signal_log_path": "./logs/signal-agent.log"
+   }
+   ```
+
+   The Signal consumer has no recipient allowlist or self-only rule:
+   `signal-agent` intentionally ignores the iMessage
+   `allowed_recipients` setting. It may send to any valid E.164 destination;
+   the Signal consumer rejects non-E.164 destinations, including Signal
+   usernames.
+
+5. On the producer host, make a separate config that targets the Signal queue.
+   `signal-send` reads `signal_queue` and enqueues there. `send` remains the
+   iMessage-only producer route and reads `queue`:
+
+   ```bash
+   cat > signal-producer.config.json <<'JSON'
+   {
+     "namespace_fqdn": "<your-namespace>.servicebus.windows.net",
+     "queue": "imsg-queue",
+     "signal_queue": "signal-queue"
+   }
+   JSON
+   ```
+
+6. From the cloned repo on the Mac, build and foreground-test before installing
+   launchd. In a second terminal on a cloned, built Signal-producer checkout,
+   enqueue a fictional smoke-test destination after configuring its real
+   namespace locally:
+
+   ```bash
+   # Mac checkout
+   npm run build
+   node dist/cli.js signal-agent --config config.json
+   ```
+
+   In a separate producer terminal:
+
+   ```bash
+   # Signal-producer checkout
+   npm run build
+   node dist/cli.js signal-send --config signal-producer.config.json \
+     --to "+15555550100" --body "Signal bridge smoke test"
+   ```
+
+   Watch the Mac terminal for a successful send, then stop the foreground
+   consumer with ctrl-C. This test exercises the installed account and
+   queue-specific receiver role without changing the iMessage consumer.
+
+7. Install the independent Signal LaunchAgent and verify its health:
+
+   ```bash
+   ./mac/launchd/install-signal.sh
+   launchctl print gui/$(id -u)/com.imessage-bridge.signal-agent | head -20
+   tail -F logs/signal-agent.log
+   tail -n 50 logs/signal-agent.launchd.log
+   ```
+
+   Re-run `install-signal.sh` after a Node or `signal-cli` path change. To
+   remove only the Signal consumer, run:
+
+   ```bash
+   ./mac/launchd/uninstall-signal.sh
+   ```
+
+   The launchd service being `running` and a `connected to service bus,
+   listening...` entry in `logs/signal-agent.log` are the basic health signal.
+   For failed deliveries, `signal-cli` errors appear in the app log and the
+   Service Bus message is abandoned for retry; see
+   [Troubleshooting](./TROUBLESHOOTING.md#signal-consumer).
+
+## 7. macOS permissions (the gotcha)
 
 `Messages.app` automation requires user consent. **The first time the agent calls `osascript`, macOS will prompt you** to allow the controlling process (usually Terminal during the foreground run) to control Messages. Click **Allow**.
 
@@ -153,7 +276,7 @@ You can audit this in:
 
 > System Settings → Privacy & Security → Automation → (Terminal / node / launchd) → ✅ Messages
 
-## 7. Run tests (contributors only)
+## 8. Run tests (contributors only)
 
 ```bash
 npm test            # Node tests (16 cases, mocked)

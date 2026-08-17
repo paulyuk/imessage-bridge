@@ -63,3 +63,9 @@
 - **Date:** 2026-08-17
 - **Context:** `doctor.sh` was never updated after the TypeScript migration (commit `5befafc`) and still referenced deleted Python tooling (`uv`, `python3`, `producer/cli.py`, `mac/agent.py`), producing false-negative health checks.
 - **Decision:** Replaced with Node/TypeScript equivalents (`node --version`, `node -e` for JSON/version checks, `npx imessage-bridge@alpha agent`/`send`) and added an optional Signal-consumer health section. Verified via manual runs with/without `signal_queue`/`signal_account` set.
+
+### D-011: Isolate Signal routing at the CLI boundary
+- **By:** Copilot (Signal hardening session)
+- **Date:** 2026-08-17
+- **Context:** The initial Signal scaffold used a dedicated consumer queue, but the producer route still needed to make channel selection explicit and reject configurations that could mix Signal and iMessage traffic.
+- **Decision:** Add `signal-send` as the only Signal producer command; it enqueues solely to `signal_queue`. Both `signal-send` and `signal-agent` reject `signal_queue === queue`. Signal recipients must be E.164, but the Signal path intentionally does not inherit iMessage `allowed_recipients` or self-only policy.

@@ -9,8 +9,26 @@ import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from "n
 
 import type { Logger } from "./log.js";
 
+const E164_DESTINATION = /^\+[1-9]\d{1,14}$/;
+const MAX_STDERR_LOG_CHARS = 4_096;
+
+/**
+ * signal-cli accepts international telephone numbers only. Keeping this check
+ * separate from the iMessage producer's legacy validation prevents a queue
+ * payload from being interpreted as a command-line option.
+ */
+export function isSignalE164(value: string): boolean {
+  return E164_DESTINATION.test(value);
+}
+
+export function validateSignalRecipient(to: string): string | undefined {
+  return isSignalE164(to)
+    ? undefined
+    : "Signal recipient must be an E.164 number (for example +14255551234)";
+}
+
 export function buildSignalCliArgs(account: string, to: string, body: string): string[] {
-  return ["-a", account, "send", to, "-m", body];
+  return ["-a", account, "send", "-m", body, "--", to];
 }
 
 export type SpawnFn = (
@@ -23,52 +41,76 @@ export type SignalCliSendOptions = {
   account: string;
   to: string;
   body: string;
+  command?: string;
   timeoutMs?: number;
   logger?: Logger;
   spawnFn?: SpawnFn;
 };
 
 export function signalCliSend(opts: SignalCliSendOptions): Promise<boolean> {
-  const { account, to, body, timeoutMs = 30_000, logger, spawnFn } = opts;
+  const { account, to, body, command = "signal-cli", timeoutMs = 30_000, logger, spawnFn } = opts;
+  if (!isSignalE164(account)) {
+    logger?.error("signal-cli account must be an E.164 number");
+    return Promise.resolve(false);
+  }
+  if (!isSignalE164(to)) {
+    logger?.error(`signal-cli recipient is not E.164: ${to}`);
+    return Promise.resolve(false);
+  }
+
   const args = buildSignalCliArgs(account, to, body);
   const sp: SpawnFn = spawnFn ?? (spawn as unknown as SpawnFn);
 
   return new Promise((resolve) => {
-    const child = sp("signal-cli", args);
     let stderr = "";
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
+    let finished = false;
+    let timer: NodeJS.Timeout | undefined;
+    const finish = (ok: boolean): void => {
+      if (finished) return;
+      finished = true;
+      if (timer) clearTimeout(timer);
+      resolve(ok);
+    };
+
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = sp(command, args, { shell: false });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logger?.error(`signal-cli spawn failed for ${to}: ${msg}`);
+      finish(false);
+      return;
+    }
+
+    timer = setTimeout(() => {
       try {
         child.kill("SIGKILL");
       } catch {
         /* ignore */
       }
       logger?.error(`signal-cli timed out for ${to}`);
-      resolve(false);
+      finish(false);
     }, timeoutMs);
 
     child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
+      if (stderr.length < MAX_STDERR_LOG_CHARS) {
+        stderr += chunk.toString("utf8").slice(0, MAX_STDERR_LOG_CHARS - stderr.length);
+      }
     });
 
     child.on("error", (err: Error) => {
-      clearTimeout(timer);
-      if (timedOut) return;
       logger?.error(`signal-cli spawn failed for ${to}: ${err.message}`);
-      resolve(false);
+      finish(false);
     });
 
     child.on("close", (code: number | null) => {
-      clearTimeout(timer);
-      if (timedOut) return;
       if (code === 0) {
-        resolve(true);
+        finish(true);
       } else {
         logger?.error(
           `signal-cli failed for ${to} (exit ${code ?? "null"}): ${stderr.trim() || "(no stderr)"}`,
         );
-        resolve(false);
+        finish(false);
       }
     });
   });

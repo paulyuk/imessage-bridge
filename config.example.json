@@ -9,5 +9,8 @@
   "signature": "⚡",
   "allowed_recipients": [
     "+15555550100"
-  ]
+  ],
+  "signal_queue": "signal-queue",
+  "signal_account": "+15555550199",
+  "signal_log_path": "./logs/signal-agent.log"
 }

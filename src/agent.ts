@@ -47,6 +47,7 @@ export async function postHealthAlert(
 }
 
 export type Sender = (to: string, body: string) => Promise<boolean>;
+export type RecipientValidator = (to: string) => string | undefined;
 
 export type ProcessOneCtx = {
   receiver: Pick<
@@ -58,13 +59,14 @@ export type ProcessOneCtx = {
   messagePrefix?: string;
   signature?: string;
   allowedRecipients?: string[];
+  recipientValidator?: RecipientValidator;
 };
 
 export async function processOne(
   msg: ServiceBusReceivedMessage,
   ctx: ProcessOneCtx,
 ): Promise<void> {
-  const { receiver, sender, logger, messagePrefix, signature, allowedRecipients } = ctx;
+  const { receiver, sender, logger, messagePrefix, signature, allowedRecipients, recipientValidator } = ctx;
 
   let payload: { id?: string; to?: string; body?: string } | null = null;
   try {
@@ -108,6 +110,20 @@ export async function processOne(
     }
     return;
   }
+  const recipientError = recipientValidator?.(to);
+  if (recipientError) {
+    logger.error(`invalid recipient ${to}, dead-lettering ${id}: ${recipientError}`);
+    try {
+      await receiver.deadLetterMessage(msg, {
+        deadLetterReason: "invalid-recipient",
+        deadLetterErrorDescription: `${recipientError} (id=${id})`,
+      });
+    } catch (settleErr) {
+      const sm = settleErr instanceof Error ? settleErr.message : String(settleErr);
+      logger.error(`failed to dead-letter: ${sm}`);
+    }
+    return;
+  }
   if (allowedRecipients?.length && !allowedRecipients.includes(to)) {
     logger.error(`recipient ${to} is not allowed, dead-lettering ${id}`);
     try {
@@ -123,7 +139,13 @@ export async function processOne(
   }
 
   logger.info(`sending ${id} -> ${to}`);
-  const ok = await sender(to, decorateMessage(body, { prefix: messagePrefix, signature }));
+  let ok = false;
+  try {
+    ok = await sender(to, decorateMessage(body, { prefix: messagePrefix, signature }));
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    logger.error(`sender failed for ${id}: ${errMsg}`);
+  }
   try {
     if (ok) {
       await receiver.completeMessage(msg);
@@ -144,10 +166,11 @@ export type RunAgentArgs = {
   clientFactory?: (fqdn: string, cred: TokenCredential) => ServiceBusClient;
   sender?: Sender;
   logger?: Logger;
+  recipientValidator?: RecipientValidator;
 };
 
 export async function runAgent(args: RunAgentArgs): Promise<number> {
-  const { config, credential, clientFactory, sender, logger } = args;
+  const { config, credential, clientFactory, sender, logger, recipientValidator } = args;
   const log = logger ?? createLogger(config.log_path ?? "./logs/agent.log");
   const fqdn = config.namespace_fqdn;
   const queue = config.queue;
@@ -183,13 +206,16 @@ export async function runAgent(args: RunAgentArgs): Promise<number> {
       log.info(`creating ServiceBusClient (attempt=${reconnectAttempt})`);
       const make = clientFactory ?? ((f: string, c: TokenCredential) => new ServiceBusClient(f, c));
       client = make(fqdn, cred);
-      const receiver = client.createReceiver(queue, { receiveMode: "peekLock" });
+      const receiver = client.createReceiver(queue, {
+        receiveMode: "peekLock",
+        maxAutoLockRenewalDurationInMs: 60_000,
+      });
       log.info("connected to service bus, listening...");
       reconnectAttempt = 0;
 
       try {
         while (!stop) {
-          const msgs: ServiceBusReceivedMessage[] = await receiver.receiveMessages(5, {
+          const msgs: ServiceBusReceivedMessage[] = await receiver.receiveMessages(1, {
             maxWaitTimeInMs: 10_000,
           });
           if (!msgs || msgs.length === 0) {
@@ -205,6 +231,7 @@ export async function runAgent(args: RunAgentArgs): Promise<number> {
               messagePrefix: config.message_prefix,
               signature: config.signature,
               allowedRecipients: config.allowed_recipients,
+              recipientValidator,
             });
           }
         }

@@ -11,14 +11,15 @@
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { loadConfig } from "./config.js";
 import type { BridgeConfig } from "./config.js";
 import { sendMessage } from "./producer.js";
 import { runAgent } from "./agent.js";
 import type { Sender } from "./agent.js";
-import { signalCliSend } from "./signal.js";
+import { createLogger } from "./log.js";
+import { isSignalE164, signalCliSend, validateSignalRecipient } from "./signal.js";
 
 type ParsedFlags = {
   to?: string;
@@ -26,6 +27,22 @@ type ParsedFlags = {
   config?: string;
   positional: string[];
 };
+
+export type CliDependencies = {
+  loadConfig?: typeof loadConfig;
+  sendMessage?: typeof sendMessage;
+  runAgent?: typeof runAgent;
+};
+
+export function validateSignalQueue(config: BridgeConfig): string | undefined {
+  if (!config.signal_queue) {
+    return 'config.signal_queue is required (e.g. "signal-queue")';
+  }
+  if (config.signal_queue === config.queue) {
+    return "config.signal_queue must differ from config.queue; Signal requires a dedicated queue";
+  }
+  return undefined;
+}
 
 function parseFlags(argv: string[]): ParsedFlags {
   const out: ParsedFlags = { positional: [] };
@@ -61,13 +78,13 @@ function readVersion(): string {
   }
 }
 
-function printHelp(): void {
-  process.stdout.write(
-    [
-      "imessage-bridge — send iMessages from anywhere via an Azure Service Bus queue.",
+export function helpText(): string {
+  return [
+      "imessage-bridge — deliver iMessage and Signal messages via Azure Service Bus queues.",
       "",
       "Usage:",
       "  imessage-bridge send  --to <+E164> --body <text> [--config <path>]",
+      "  imessage-bridge signal-send --to <+E164> --body <text> [--config <path>]",
       "  imessage-bridge agent [--config <path>]",
       "  imessage-bridge signal-agent [--config <path>]",
       "  imessage-bridge help | --help | -h",
@@ -78,14 +95,18 @@ function printHelp(): void {
       "",
       "Examples:",
       "  imessage-bridge send --to +14255551234 --body 'hello from anywhere'",
+      "  imessage-bridge signal-send --to +15555550100 --body 'hello over Signal'",
       "  imessage-bridge agent",
       "  imessage-bridge signal-agent   # requires config.signal_queue + config.signal_account",
       "",
-    ].join("\n"),
-  );
+    ].join("\n");
 }
 
-async function main(argv: string[]): Promise<number> {
+function printHelp(): void {
+  process.stdout.write(helpText());
+}
+
+export async function main(argv: string[], dependencies: CliDependencies = {}): Promise<number> {
   const [cmd, ...rest] = argv;
 
   if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
@@ -99,31 +120,46 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const flags = parseFlags(rest);
-  const config = loadConfig(flags.config);
+  const config = (dependencies.loadConfig ?? loadConfig)(flags.config);
 
-  if (cmd === "send") {
+  if (cmd === "send" || cmd === "signal-send") {
     if (!flags.to || !flags.body) {
       process.stderr.write(
-        "error: send requires --to <+E164> and --body <text>\n" +
+        `error: ${cmd} requires --to <+E164> and --body <text>\n` +
           "  example: imessage-bridge send --to +14255551234 --body 'hi'\n",
       );
       return 2;
     }
-    const id = await sendMessage({ config, to: flags.to, body: flags.body });
+    if (cmd === "signal-send" && !isSignalE164(flags.to)) {
+      process.stderr.write("error: signal-send requires an E.164 --to destination\n");
+      return 2;
+    }
+    let targetConfig = config;
+    if (cmd === "signal-send") {
+      const queueError = validateSignalQueue(config);
+      if (queueError) {
+        process.stderr.write(`error: ${queueError}\n`);
+        return 2;
+      }
+      targetConfig = { ...config, queue: config.signal_queue! };
+    }
+    const id = await (dependencies.sendMessage ?? sendMessage)({
+      config: targetConfig,
+      to: flags.to,
+      body: flags.body,
+    });
     process.stdout.write(`enqueued ${id} -> ${flags.to}\n`);
     return 0;
   }
 
   if (cmd === "agent") {
-    return await runAgent({ config });
+    return await (dependencies.runAgent ?? runAgent)({ config });
   }
 
   if (cmd === "signal-agent") {
-    if (!config.signal_queue) {
-      process.stderr.write(
-        "error: config.signal_queue is required for signal-agent (e.g. \"signal-queue\")\n" +
-          "  fix: add \"signal_queue\" to config.json\n",
-      );
+    const queueError = validateSignalQueue(config);
+    if (queueError) {
+      process.stderr.write(`error: ${queueError}\n`);
       return 2;
     }
     if (!config.signal_account) {
@@ -133,14 +169,32 @@ async function main(argv: string[]): Promise<number> {
       );
       return 2;
     }
+    if (!isSignalE164(config.signal_account)) {
+      process.stderr.write(
+        'error: config.signal_account must be an E.164 number (e.g. "+14255551234")\n',
+      );
+      return 2;
+    }
+    const signalLogPath = config.signal_log_path ?? "./logs/signal-agent.log";
     const signalConfig: BridgeConfig = {
       ...config,
-      queue: config.signal_queue,
-      log_path: config.signal_log_path ?? "./logs/signal-agent.log",
+      queue: config.signal_queue!,
+      log_path: signalLogPath,
+      // Signal intentionally accepts every valid destination from its dedicated
+      // queue; iMessage's optional allowlist must never cross this boundary.
+      allowed_recipients: undefined,
     };
     const account = config.signal_account;
-    const sender: Sender = (to, body) => signalCliSend({ account, to, body });
-    return await runAgent({ config: signalConfig, sender });
+    const logger = createLogger(signalLogPath);
+    const command = config.signal_cli_path ?? process.env.IMSG_SIGNAL_CLI;
+    const sender: Sender = (to, body) =>
+      signalCliSend({ account, to, body, command, logger });
+    return await (dependencies.runAgent ?? runAgent)({
+      config: signalConfig,
+      sender,
+      logger,
+      recipientValidator: validateSignalRecipient,
+    });
   }
 
   process.stderr.write(`unknown command: ${cmd}\n`);
@@ -148,11 +202,14 @@ async function main(argv: string[]): Promise<number> {
   return 2;
 }
 
-main(process.argv.slice(2)).then(
-  (code) => process.exit(code),
-  (err: unknown) => {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`error: ${msg}\n`);
-    process.exit(1);
-  },
-);
+const invokedPath = process.argv[1];
+if (invokedPath && resolve(fileURLToPath(import.meta.url)) === resolve(invokedPath)) {
+  main(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`error: ${msg}\n`);
+      process.exit(1);
+    },
+  );
+}
