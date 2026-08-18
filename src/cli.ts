@@ -15,11 +15,13 @@ import { dirname, join, resolve } from "node:path";
 
 import { loadConfig } from "./config.js";
 import type { BridgeConfig } from "./config.js";
+import { loadWintergreenConfig } from "./config.js";
 import { sendMessage } from "./producer.js";
 import { runAgent } from "./agent.js";
 import type { Sender } from "./agent.js";
 import { createLogger } from "./log.js";
 import { isSignalE164, signalCliSend, validateSignalRecipient } from "./signal.js";
+import { resolveWintergreenConfig, runWintergreenAgent } from "./wintergreen.js";
 
 type ParsedFlags = {
   to?: string;
@@ -30,8 +32,10 @@ type ParsedFlags = {
 
 export type CliDependencies = {
   loadConfig?: typeof loadConfig;
+  loadWintergreenConfig?: typeof loadWintergreenConfig;
   sendMessage?: typeof sendMessage;
   runAgent?: typeof runAgent;
+  runWintergreenAgent?: typeof runWintergreenAgent;
 };
 
 export function validateSignalQueue(config: BridgeConfig): string | undefined {
@@ -80,13 +84,14 @@ function readVersion(): string {
 
 export function helpText(): string {
   return [
-      "imessage-bridge — deliver iMessage and Signal messages via Azure Service Bus queues.",
+      "imessage-bridge — deliver iMessage and Signal messages via Azure queues.",
       "",
       "Usage:",
       "  imessage-bridge send  --to <+E164> --body <text> [--config <path>]",
       "  imessage-bridge signal-send --to <+E164> --body <text> [--config <path>]",
       "  imessage-bridge agent [--config <path>]",
       "  imessage-bridge signal-agent [--config <path>]",
+      "  imessage-bridge wintergreen-agent [--config <path>]",
       "  imessage-bridge help | --help | -h",
       "  imessage-bridge version | --version | -v",
       "",
@@ -98,6 +103,7 @@ export function helpText(): string {
       "  imessage-bridge signal-send --to +15555550100 --body 'hello over Signal'",
       "  imessage-bridge agent",
       "  imessage-bridge signal-agent   # requires config.signal_queue + config.signal_account",
+      "  imessage-bridge wintergreen-agent # uses Azure Storage Queue, not Service Bus",
       "",
     ].join("\n");
 }
@@ -120,6 +126,34 @@ export async function main(argv: string[], dependencies: CliDependencies = {}): 
   }
 
   const flags = parseFlags(rest);
+  if (cmd === "wintergreen-agent") {
+    const wintergreenConfig = (dependencies.loadWintergreenConfig ?? loadWintergreenConfig)(
+      flags.config,
+    );
+    if (!wintergreenConfig.signal_account) {
+      process.stderr.write(
+        "error: config.signal_account is required for wintergreen-agent (e.g. \"+15555550100\")\n",
+      );
+      return 2;
+    }
+    if (!isSignalE164(wintergreenConfig.signal_account)) {
+      process.stderr.write(
+        'error: config.signal_account must be an E.164 number (e.g. "+14255551234")\n',
+      );
+      return 2;
+    }
+    try {
+      resolveWintergreenConfig(wintergreenConfig);
+      return await (dependencies.runWintergreenAgent ?? runWintergreenAgent)({
+        config: wintergreenConfig,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`error: ${detail}\n`);
+      return 2;
+    }
+  }
+
   const config = (dependencies.loadConfig ?? loadConfig)(flags.config);
 
   if (cmd === "send" || cmd === "signal-send") {

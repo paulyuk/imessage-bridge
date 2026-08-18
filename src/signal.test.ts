@@ -12,6 +12,7 @@ import { EventEmitter } from "node:events";
 import {
   buildSignalCliArgs,
   isSignalE164,
+  isSignalGroup,
   signalCliSend,
   validateSignalRecipient,
 } from "./signal.js";
@@ -43,7 +44,24 @@ test("Signal E.164 validation rejects option-like and malformed destinations", (
   assert.equal(isSignalE164("--account"), false);
   assert.equal(isSignalE164("15555550100"), false);
   assert.equal(validateSignalRecipient("+15555550100"), undefined);
-  assert.match(validateSignalRecipient("--version") ?? "", /E\.164/);
+  assert.match(validateSignalRecipient("--version") ?? "", /E\.164 or group/);
+});
+
+test("Signal group recipient routes through signal-cli's group form", () => {
+  const groupId = Buffer.alloc(16, 7).toString("base64");
+  const recipient = `group:${groupId}`;
+  assert.equal(isSignalGroup(recipient), true);
+  assert.equal(validateSignalRecipient(recipient), undefined);
+  assert.deepEqual(buildSignalCliArgs("+15555550199", recipient, "group hello"), [
+    "-a",
+    "+15555550199",
+    "send",
+    "-m",
+    "group hello",
+    "-g",
+    groupId,
+  ]);
+  assert.equal(isSignalGroup("group:--version"), false);
 });
 
 function makeFakeChild(): {

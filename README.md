@@ -15,7 +15,7 @@ A small, opinionated bridge that lets an inexpensive Linux/cloud "producer" (or 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 [![macOS LaunchAgent](https://img.shields.io/badge/runs%20on-macOS%20LaunchAgent-000000)](./mac/launchd/install.sh)
 
-[Quick start](#-quick-start) · [Signal consumer](#-signal-service-bus-consumer) · [Architecture](#-architecture) · [Standards & portability](#-standards--portability) · [Install](./INSTALL.md) · [Troubleshooting](./TROUBLESHOOTING.md) · [Security](#-security) · [Contributing](#-contributing)
+[Quick start](#-quick-start) · [Signal Service Bus consumer](#-signal-service-bus-consumer) · [Wintergreen Storage Queue listener](#-wintergreen-storage-queue-signal-listener) · [Architecture](#-architecture) · [Standards & portability](#-standards--portability) · [Install](./INSTALL.md) · [Troubleshooting](./TROUBLESHOOTING.md) · [Security](#-security) · [Contributing](#-contributing)
 
 </div>
 
@@ -243,6 +243,85 @@ separate deployment:
 The production checklist, including the manual linking/registration choices,
 Signal queue RBAC, foreground smoke test, and launchd lifecycle is in
 [DEPLOY-MAC-MINI.md §G](./DEPLOY-MAC-MINI.md#g-optional--signal-sibling-consumer).
+
+## ❄️ Wintergreen Storage Queue Signal listener
+
+> **Separate from Service Bus.** `wintergreen-agent` consumes Azure Storage
+> Queue. The existing `signal-agent` remains a Service Bus consumer and does
+> not read Wintergreen work.
+
+Wintergreen requires a separate Signal consumer for Azure Storage Queue at
+`https://stmff26vpp2mb7u.queue.core.windows.net`. It is distinct from the
+Service Bus Signal consumer even though both queues are named `signal-queue`.
+The endpoint, client, identity roles, visibility semantics, poison queue, and
+LaunchAgent are all separate. A queue name alone must never be used to identify
+which broker a consumer serves.
+
+The intended listener configuration namespace is:
+
+```json
+{
+  "wintergreen_queue_endpoint": "https://stmff26vpp2mb7u.queue.core.windows.net",
+  "wintergreen_queue": "signal-queue",
+  "wintergreen_poison_queue": "signal-queue-poison",
+  "wintergreen_max_dequeue_count": "<operator-selected-positive-integer>"
+}
+```
+
+- `wintergreen_queue_endpoint` and `wintergreen_queue` identify the Storage
+  Queue source.
+- `wintergreen_poison_queue` is optional. The listener should default it to
+  `<wintergreen_queue>-poison` when omitted.
+- `wintergreen_max_dequeue_count` is the operator-controlled poison-promotion
+  threshold. It defaults to `5` and must be a positive integer.
+- `wintergreen_visibility_timeout_s` is optional and defaults to `60` seconds.
+  It controls the explicit receive visibility timeout.
+- These settings are intentionally separate from `namespace_fqdn`,
+  `queue`, and `signal_queue`. They contain no credentials and must not be
+  replaced with a connection string, account key, SAS, or SQL credential.
+- The local sender also requires the existing `signal_account` setting to be an
+  E.164 Signal account. It may use `signal_cli_path` when the binary is not on
+  its configured PATH.
+
+Each decoded Storage Queue message must be an object with this contract:
+
+```json
+{
+  "message": "text to deliver",
+  "recipient": "+15555550100",
+  "app": "source-system",
+  "created_at": "2026-08-17T00:00:00Z"
+}
+```
+
+The listener translates `message` into the Signal body and `recipient` into the
+Signal destination. It must accept an E.164 destination or
+`group:<base64>` for a Signal group. `app` and `created_at` remain available for
+validation and observability, and contribute to the derived work ID. `app` must
+be a non-empty string and `created_at` must be a valid timestamp. This consumer
+has no recipient allowlist and no self-only rule. Invalid or untranslatable
+payloads must be handled as poison work, not sent to Signal.
+
+Delivery is at least once. The listener must receive with explicit visibility,
+send locally, then delete the queue message only after the send reports
+success. A transient receive or send failure must leave or return the message
+for retry. Once its dequeue count reaches
+`wintergreen_max_dequeue_count`, the listener must promote it to
+`wintergreen_poison_queue` and remove the original only after that promotion
+succeeds. A successful local send followed by a failed delete can therefore
+produce a duplicate.
+
+Authentication remains identity-only through `DefaultAzureCredential`. The
+existing Mac mini dedicated service principal is assigned
+`Storage Queue Data Message Processor` at the Wintergreen queue scope. The
+Wintergreen Function identity is assigned `Storage Queue Data Message Sender`
+there. The consumer still uses `DefaultAzureCredential`; no new service
+principal, secret, SAS, key, SQL resource, or `Storage Account Contributor` is
+created or needed. No Storage account, queue, role assignment, resource, or
+account setup is automated by this repository. See
+[the Wintergreen deployment runbook](./DEPLOY-MAC-MINI.md#h-wintergreen-storage-queue-signal-listener)
+for the required queue scope, role tightening, foreground operation,
+LaunchAgent separation, and logs.
 
 ## 🏗 Architecture
 

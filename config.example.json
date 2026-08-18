@@ -12,5 +12,11 @@
   ],
   "signal_queue": "signal-queue",
   "signal_account": "+15555550199",
-  "signal_log_path": "./logs/signal-agent.log"
+  "signal_log_path": "./logs/signal-agent.log",
+  "wintergreen_queue_endpoint": "https://stmff26vpp2mb7u.queue.core.windows.net",
+  "wintergreen_queue": "signal-queue",
+  "wintergreen_poison_queue": "signal-queue-poison",
+  "wintergreen_max_dequeue_count": 5,
+  "wintergreen_visibility_timeout_s": 60,
+  "wintergreen_log_path": "./logs/wintergreen-agent.log"
 }

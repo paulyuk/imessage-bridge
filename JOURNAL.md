@@ -5,6 +5,15 @@
 
 ---
 
+## 2026-08-17 — Wintergreen Storage Queue Listener Isolated
+
+| Time | Steering Command | What Happened | Level-Up 🆙 |
+|------|-----------------|---------------|-------------|
+| 17:17 PDT | *"Keep Wintergreen separate and operationally bounded"* | Added the Wintergreen listener as an independent Azure Storage Queue consumer. It may share the `signal-queue` string with the Service Bus Signal consumer, but its Storage endpoint and `wintergreen_*` configuration form a distinct queue identity. It translates the Wintergreen boundary payload into Signal delivery, permits E.164 and group recipients without an allowlist, and manually promotes exhausted deliveries to a poison queue. | 🆙 Broker separation is explicit even where queue labels overlap, preventing configuration or daemon cross-wiring. |
+| 17:17 PDT | *"Document the safe operating path"* | The current docs recommend queue-scoped, least-privilege RBAC and leave all Azure account, role, and resource actions to operators. A dedicated macOS LaunchAgent, logs, and installer isolate Wintergreen from the existing Signal daemon. | 🆙 The consumer can be deployed and recovered independently without automating sensitive cloud or account actions. |
+
+---
+
 ## 2026-08-17 — Signal Consumer Hardened for Release
 
 | Time | Steering Command | What Happened | Level-Up 🆙 |

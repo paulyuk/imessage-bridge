@@ -10,6 +10,7 @@ import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from "n
 import type { Logger } from "./log.js";
 
 const E164_DESTINATION = /^\+[1-9]\d{1,14}$/;
+const BASE64_GROUP_ID = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const MAX_STDERR_LOG_CHARS = 4_096;
 
 /**
@@ -21,13 +22,24 @@ export function isSignalE164(value: string): boolean {
   return E164_DESTINATION.test(value);
 }
 
+export function isSignalGroup(value: string): boolean {
+  if (!value.startsWith("group:")) return false;
+  const groupId = value.slice("group:".length);
+  if (!BASE64_GROUP_ID.test(groupId)) return false;
+  const decoded = Buffer.from(groupId, "base64");
+  return decoded.length >= 16 && decoded.length <= 64 && decoded.toString("base64") === groupId;
+}
+
 export function validateSignalRecipient(to: string): string | undefined {
-  return isSignalE164(to)
+  return isSignalE164(to) || isSignalGroup(to)
     ? undefined
-    : "Signal recipient must be an E.164 number (for example +14255551234)";
+    : "Signal recipient must be E.164 or group:<base64 group id>";
 }
 
 export function buildSignalCliArgs(account: string, to: string, body: string): string[] {
+  if (isSignalGroup(to)) {
+    return ["-a", account, "send", "-m", body, "-g", to.slice("group:".length)];
+  }
   return ["-a", account, "send", "-m", body, "--", to];
 }
 
@@ -53,8 +65,8 @@ export function signalCliSend(opts: SignalCliSendOptions): Promise<boolean> {
     logger?.error("signal-cli account must be an E.164 number");
     return Promise.resolve(false);
   }
-  if (!isSignalE164(to)) {
-    logger?.error(`signal-cli recipient is not E.164: ${to}`);
+  if (validateSignalRecipient(to)) {
+    logger?.error(`signal-cli recipient is invalid: ${to}`);
     return Promise.resolve(false);
   }
 

@@ -100,6 +100,44 @@ or registered manually with `signal-cli`; the bridge does not manage it. See
 [INSTALL.md §6](../INSTALL.md#6-optional--run-the-signal-consumer) for the
 account steps, foreground test, launchd lifecycle, logs, and recovery.
 
+## 6. Wintergreen Storage Queue Signal listener
+
+This is not the Service Bus Signal consumer documented above.
+`wintergreen-agent` is the Storage Queue command. The intended source is the
+Azure Storage Queue endpoint
+`https://stmff26vpp2mb7u.queue.core.windows.net` with queue name
+`signal-queue`. The matching Service Bus queue name does not join these
+two systems.
+
+The required queue-scoped RBAC resource ID is:
+
+```text
+/subscriptions/ca5ce512-88e1-44b1-97c6-22caf84fb2b0/resourceGroups/rg-wintergreen/providers/Microsoft.Storage/storageAccounts/stmff26vpp2mb7u/queueServices/default/queues/signal-queue
+```
+
+Use only these roles at that scope:
+
+| Identity | Role |
+|---|---|
+| Existing Mac mini dedicated service principal | `Storage Queue Data Message Processor` |
+| Wintergreen Function identity | `Storage Queue Data Message Sender` |
+
+The user and Wintergreen Function identity currently have broader
+`Storage Queue Data Contributor` at the Storage account scope. Tighten those
+assignments to the queue-scoped roles after verifying that no other workload
+depends on the broader grant. Do not grant `Storage Account Contributor`, use
+account keys or SAS, configure SQL credentials, or create a new service
+principal. The listener must authenticate with `DefaultAzureCredential`.
+
+The planned config namespace is `wintergreen_queue_endpoint`,
+`wintergreen_queue`, optional `wintergreen_poison_queue` with default
+`<wintergreen_queue>-poison`, and
+`wintergreen_max_dequeue_count` with default `5`. The explicit receive
+visibility setting is `wintergreen_visibility_timeout_s`, default `60`.
+For its message contract, poison handling, foreground operation, dedicated
+LaunchAgent, and logs, see
+[DEPLOY-MAC-MINI.md §H](../DEPLOY-MAC-MINI.md#h-wintergreen-storage-queue-signal-listener).
+
 ## Identity-only — what's *not* allowed
 
 | Auth method                          | Allowed? | Why not                                  |

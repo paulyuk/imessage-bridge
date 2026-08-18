@@ -278,3 +278,132 @@ tail -n 50 logs/signal-agent.launchd.log
 Both consumers can run on the same Mac (or different machines) independently:
 separate queues, roles, configs, LaunchAgents, and logs, sharing only the
 generic receive/retry/settle implementation.
+
+## H. Wintergreen Storage Queue Signal listener
+
+> **Separate from Service Bus.** `wintergreen-agent` consumes Azure Storage
+> Queue. `signal-agent` remains the existing Service Bus consumer and must not
+> be repointed at the Wintergreen endpoint.
+
+Wintergreen is a separate consumer of Azure Storage Queue endpoint
+`https://stmff26vpp2mb7u.queue.core.windows.net` and queue `signal-queue`.
+That queue string is also used by the Service Bus Signal consumer, but the two
+systems are unrelated. Treat the broker endpoint plus queue name as the queue
+identity.
+
+### H.1 Required configuration and input translation
+
+The listener must use a separate configuration namespace:
+
+```json
+{
+  "wintergreen_queue_endpoint": "https://stmff26vpp2mb7u.queue.core.windows.net",
+  "wintergreen_queue": "signal-queue",
+  "wintergreen_poison_queue": "signal-queue-poison",
+  "wintergreen_max_dequeue_count": "<operator-selected-positive-integer>"
+}
+```
+
+- `wintergreen_poison_queue` is optional and defaults to
+  `<wintergreen_queue>-poison`.
+- `wintergreen_max_dequeue_count` defaults to `5` and must be a positive
+  integer.
+- `wintergreen_visibility_timeout_s` is optional and defaults to `60` seconds.
+  It controls the explicit receive visibility timeout.
+- This configuration does not use a connection string, account key, SAS,
+  SQL credential, or service principal.
+- The local sender also requires `signal_account` to name an E.164 Signal
+  account. `signal_cli_path` is optional when `signal-cli` is already on PATH.
+
+The input contract is:
+
+```json
+{
+  "message": "text to deliver",
+  "recipient": "+15555550100 or group:<base64>",
+  "app": "source-system",
+  "created_at": "2026-08-17T00:00:00Z"
+}
+```
+
+Translate `message` to the Signal body and `recipient` to the Signal target.
+Accept only E.164 recipients or `group:<base64>` group recipients. Preserve
+`app` and `created_at` for validation and observability. Both must be non-empty,
+and `created_at` must be a valid timestamp. The Wintergreen listener has no
+allowlist and no self-only rule. It must not inherit the Service Bus iMessage
+or Signal consumer settings.
+
+### H.2 Identity, queue scope, and least privilege
+
+Use `DefaultAzureCredential` only. The existing Mac mini dedicated service
+principal is assigned the processor role below. Do not create a new service
+principal, secret, SAS, key, SQL resource, or `Storage Account Contributor` for
+this listener.
+
+The required queue-scoped resource ID is:
+
+```text
+/subscriptions/ca5ce512-88e1-44b1-97c6-22caf84fb2b0/resourceGroups/rg-wintergreen/providers/Microsoft.Storage/storageAccounts/stmff26vpp2mb7u/queueServices/default/queues/signal-queue
+```
+
+At that scope, the desired assignments are:
+
+| Identity | Desired role | Purpose |
+|---|---|---|
+| Existing Mac mini dedicated service principal | `Storage Queue Data Message Processor` | Receive, update visibility, and delete Wintergreen work |
+| Wintergreen Function identity | `Storage Queue Data Message Sender` | Enqueue Wintergreen work only |
+
+The user and Wintergreen Function identity currently have the broader
+`Storage Queue Data Contributor` role at the `stmff26vpp2mb7u` account scope.
+Tighten those account-scoped grants to the queue-scoped roles above after
+confirming no other workload requires the broader access. Do not grant
+`Storage Account Contributor`, keys, SAS, or SQL access.
+
+This repository does not automate Storage account discovery, queue creation,
+RBAC assignment, account changes, or role removal. Those are operator actions
+outside this runbook.
+
+### H.3 Delivery, foreground operation, and LaunchAgent
+
+The listener must implement at-least-once delivery:
+
+1. Receive a message with explicit visibility control.
+2. Translate and send it to Signal.
+3. Delete it only after a successful send.
+4. On a transient receive or send error, preserve it for retry.
+5. When its dequeue count reaches `wintergreen_max_dequeue_count`, copy it to
+   `wintergreen_poison_queue`, then delete the source only after that copy
+   succeeds.
+
+Run the listener in the foreground first:
+
+```bash
+npm run build
+node dist/cli.js wintergreen-agent --config config.json
+```
+
+It writes its structured application log to
+`./logs/wintergreen-agent.log` by default, configurable with
+`wintergreen_log_path`. Verify a fictional E.164 or group test payload before
+installing the daemon.
+
+Install the distinct LaunchAgent, then verify its state and logs:
+
+```bash
+./mac/launchd/install-wintergreen.sh
+launchctl print gui/$(id -u)/com.imessage-bridge.wintergreen-agent | head -20
+tail -F logs/wintergreen-agent.log
+tail -n 50 logs/wintergreen-agent.launchd.log
+```
+
+The installer requires Node 22+, `signal-cli`, and `config.json` with
+`signal_account`; it builds only when `dist/cli.js` is absent. To stop and
+remove only this daemon, run:
+
+```bash
+./mac/launchd/uninstall-wintergreen.sh
+```
+
+The Wintergreen service has its own label, configuration source, app log, and
+launchd stdout/stderr log. Do not reuse `com.imessage-bridge.signal-agent` or
+its Service Bus installer and logs.

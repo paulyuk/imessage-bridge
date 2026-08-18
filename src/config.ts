@@ -31,7 +31,23 @@ export type BridgeConfig = {
   signal_cli_path?: string;
 };
 
-export function loadConfig(path?: string): BridgeConfig {
+/**
+ * Storage Queue settings for the standalone Wintergreen listener. They are
+ * deliberately separate from Service Bus namespace_fqdn/queue settings.
+ */
+export type WintergreenConfig = {
+  wintergreen_queue_endpoint?: string;
+  wintergreen_queue?: string;
+  wintergreen_poison_queue?: string;
+  wintergreen_max_dequeue_count?: number;
+  wintergreen_visibility_timeout_s?: number;
+  wintergreen_log_path?: string;
+  poll_interval_s?: number;
+  signal_account?: string;
+  signal_cli_path?: string;
+};
+
+function readJsonConfig(path?: string): { cfgPath: string; cfg: Record<string, unknown> } {
   const cfgPath = path ?? process.env.IMSG_CONFIG ?? "config.json";
   if (!existsSync(cfgPath)) {
     throw new Error(
@@ -40,21 +56,33 @@ export function loadConfig(path?: string): BridgeConfig {
     );
   }
   const raw = readFileSync(cfgPath, "utf8");
-  let cfg: BridgeConfig;
   try {
-    cfg = JSON.parse(raw) as BridgeConfig;
+    return { cfgPath, cfg: JSON.parse(raw) as Record<string, unknown> };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(`config is not valid JSON: ${cfgPath}\n  ${msg}`);
   }
-  if (!cfg.namespace_fqdn || cfg.namespace_fqdn === "REPLACE-ME.servicebus.windows.net") {
+}
+
+export function loadConfig(path?: string): BridgeConfig {
+  const { cfgPath, cfg } = readJsonConfig(path);
+  const bridgeConfig = cfg as BridgeConfig;
+  if (
+    !bridgeConfig.namespace_fqdn ||
+    bridgeConfig.namespace_fqdn === "REPLACE-ME.servicebus.windows.net"
+  ) {
     throw new Error(
       `config.namespace_fqdn is unset (still REPLACE-ME or empty)\n` +
         `  fix: edit ${cfgPath} and set namespace_fqdn to "<ns>.servicebus.windows.net"`,
     );
   }
-  if (!cfg.queue) {
+  if (!bridgeConfig.queue) {
     throw new Error(`config.queue is required (e.g. "imsg-queue") — fix in ${cfgPath}`);
   }
-  return cfg;
+  return bridgeConfig;
+}
+
+export function loadWintergreenConfig(path?: string): WintergreenConfig {
+  const { cfg } = readJsonConfig(path);
+  return cfg as WintergreenConfig;
 }

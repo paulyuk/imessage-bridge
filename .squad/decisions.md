@@ -69,3 +69,9 @@
 - **Date:** 2026-08-17
 - **Context:** The initial Signal scaffold used a dedicated consumer queue, but the producer route still needed to make channel selection explicit and reject configurations that could mix Signal and iMessage traffic.
 - **Decision:** Add `signal-send` as the only Signal producer command; it enqueues solely to `signal_queue`. Both `signal-send` and `signal-agent` reject `signal_queue === queue`. Signal recipients must be E.164, but the Signal path intentionally does not inherit iMessage `allowed_recipients` or self-only policy.
+
+### D-012: Treat Wintergreen Storage Queue identity as endpoint plus queue
+- **By:** Scribe
+- **Date:** 2026-08-17
+- **Context:** Wintergreen adds a separate Azure Storage Queue Signal consumer whose queue label can legitimately match the existing Service Bus Signal queue label. Treating the label alone as queue identity risks crossing broker clients, configuration, RBAC, or macOS daemon lifecycle.
+- **Decision:** Keep `wintergreen-agent` fully separate through its Storage endpoint and `wintergreen_*` configuration domain, dedicated macOS LaunchAgent/logs, and queue-scoped least-privilege RBAC recommendation. Translate only the `{message, recipient, app: "wintergreen", created_at}` boundary contract; accept E.164 and Signal-group recipients without an allowlist. Retry delivery until the configured dequeue limit, then copy to a manually managed poison queue before deleting the source. Do not automate Azure, RBAC, Storage account, or Signal account actions.

@@ -74,6 +74,45 @@ Drain DLQ for inspection (PowerShell / Service Bus Explorer / az ext servicebus)
 
 ## Signal consumer
 
+### Wintergreen listener reads the wrong queue or will not start
+
+Run `wintergreen-agent`, not `signal-agent`, for Azure Storage Queue at
+`https://stmff26vpp2mb7u.queue.core.windows.net`. The shared string
+`signal-queue` does not make a Storage Queue interchangeable with the Service
+Bus queue.
+
+```bash
+npm run build
+node dist/cli.js wintergreen-agent --config config.json
+tail -F logs/wintergreen-agent.log
+```
+
+The command requires `signal_account` plus valid Wintergreen configuration.
+The endpoint and queue default to the documented Wintergreen values,
+`wintergreen_poison_queue` defaults to `<wintergreen_queue>-poison`,
+`wintergreen_max_dequeue_count` defaults to `5`, and
+`wintergreen_visibility_timeout_s` defaults to `60`.
+
+First check the Storage Queue endpoint, the exact
+queue-scoped `Storage Queue Data Message Processor` assignment for the
+existing Mac mini dedicated service principal, and the listener's own logs. The
+consumer still uses `DefaultAzureCredential`; do not create a new service
+principal, account key, SAS, SQL credential, or `Storage Account Contributor`
+to work around an authorization failure. See
+[DEPLOY-MAC-MINI.md §H](./DEPLOY-MAC-MINI.md#h-wintergreen-storage-queue-signal-listener).
+
+Do not use the Service Bus Signal LaunchAgent, its role, or its logs for this
+listener. Install and inspect the dedicated service instead:
+
+```bash
+./mac/launchd/install-wintergreen.sh
+launchctl print gui/$(id -u)/com.imessage-bridge.wintergreen-agent | head -20
+tail -n 50 logs/wintergreen-agent.launchd.log
+```
+
+The Wintergreen service has its own label and launchd stdout/stderr log.
+Remove only it with `./mac/launchd/uninstall-wintergreen.sh`.
+
 ### `signal-cli not found on PATH` / `signal-cli spawn failed`
 
 The Signal LaunchAgent starts `signal-cli` from the macOS user's PATH. Install
